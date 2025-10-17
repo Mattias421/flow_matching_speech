@@ -3,7 +3,7 @@ defaults:
   - override hydra/launcher: submitit_slurm
 
 compute:
-  ngpus: 8
+  ngpus: 4
   nodes: 1
 
 logging:
@@ -11,7 +11,7 @@ logging:
   log_lr_every: ${logging.log_freq}
   log_file_name: stdout.log
   enable_wandb: True
-  entity: flows
+  entity: mattias421
   project: flow_matching
   group: null
 
@@ -64,20 +64,3 @@ model:
   dropout: 0.1
   compile: true
 
-hydra_dir: /path/to/hydra/dir
-
-hydra:
-  run:
-    dir: ${hydra_dir}/${now:%Y.%m.%d}/${now:%H%M%S}
-  sweep:
-    dir: ${hydra_dir}/${now:%Y.%m.%d}/${now:%H%M%S}
-    subdir: ${hydra.job.num}
-  launcher:
-    max_num_timeout: 100000
-    timeout_min: 4320
-    partition: learn
-    qos: # TODO: change it to your own qos
-    gpus_per_node: ${compute.ngpus}
-    mem_gb: 1760
-    cpus_per_task: 32
-    nodes: ${compute.nodes}
