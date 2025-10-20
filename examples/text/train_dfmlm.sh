@@ -17,12 +17,13 @@
 
 echo "starting experiment"
 
-cd $EXP/flow_matching/examples/text
+cd $EXP/flow_matching_speech/examples/text
 
 ml binutils
 ml GCCcore
 ml GCC
+ml libsndfile
 
 source .venv/bin/activate
-python run_train.py data.cache_dir=$DATA training.batch_size=256 optim.lr=1.5e-4 optim.warmup=5000
+python run_train.py data.cache_dir=$DATA training.batch_size=256 eval.batch_size=256 optim.lr=1.5e-4 optim.warmup=5000 hydra.run.dir=./outputs/2025-10-17/15-21-21
 
