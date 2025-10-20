@@ -9,15 +9,19 @@
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import Dict, Iterable, Tuple
+from pathlib import Path
 
 from datasets import DatasetDict, load_dataset
 from omegaconf import OmegaConf
 
 from torch.utils.data import DataLoader
-from transformers import GPT2TokenizerFast
+from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
 
-from data.tokenizer import wt_detokenizer
+from data.tokenizer import wt_detokenizer, train_tokenizer
 from data.utils import cycle_loader, StatefulDistributedSampler
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _get_hf_dataset(
@@ -29,6 +33,8 @@ def _get_hf_dataset(
 ) -> DatasetDict:
     detokenizer = None
 
+    logger.info(f"preparing {name}-{mode}")
+
     if name == "wikitext103":
         data = load_dataset(
             "wikitext", name="wikitext-103-raw-v1", cache_dir=cache_dir
@@ -39,8 +45,7 @@ def _get_hf_dataset(
             "HuggingFaceFW/fineweb-edu", name="CC-MAIN-2024-10", cache_dir=cache_dir
         )[mode]
     elif name == "librispeech":
-        data = load_dataset("audiofolder", data_dir=f"{cache_dir}/LibriSpeech", cache_dir=cache_dir)
-        breakpoint()
+        data = load_dataset("audiofolder", data_dir=f"{cache_dir}/LibriSpeech", cache_dir=cache_dir)[mode]
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
 
@@ -52,7 +57,15 @@ def _get_hf_dataset(
 
         return detok
 
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    logger.info("loading tokenizer")
+    if name == 'librispeech':
+        if mode == 'train' and not Path("outputs/tokenizer-librispeech.json").exists():
+            train_tokenizer(data, "outputs/tokenizer-librispeech.json")
+        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer.eos_token = "[EOS]"
+    else:
+        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+
     EOS = tokenizer.encode(tokenizer.eos_token)[0]
 
     def preprocess_and_tokenize(example: Dict):
@@ -69,6 +82,7 @@ def _get_hf_dataset(
 
         return tokens
 
+    logger.info("Tokenizing data")
     tokenized_dataset = data.map(
         preprocess_and_tokenize,
         batched=True,
@@ -99,6 +113,7 @@ def _get_hf_dataset(
 
         return result
 
+    logger.info("Chunking data")
     chunked_dataset = tokenized_dataset.map(
         group_texts, batched=True, num_proc=num_proc, load_from_cache_file=True
     )

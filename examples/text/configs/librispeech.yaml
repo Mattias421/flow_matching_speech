@@ -22,14 +22,14 @@ data:
   num_workers: 8
 
 training:
-  batch_size: 256
+  batch_size: 128
   snapshot: 500
-  eval_freq: 1000
-  perplexity_freq: 1000
+  eval_freq: 4000
+  perplexity_freq: 4000
   seed: 42
 
 eval:
-  batch_size: 512
+  batch_size: 128
   sample_batch_size: 16
   perplexity: True
   perplexity_batch_size: 16

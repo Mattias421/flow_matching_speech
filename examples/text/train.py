@@ -18,7 +18,7 @@ from model import Transformer
 from omegaconf import OmegaConf
 from torch import optim
 from torch.nn.parallel import DistributedDataParallel as DDP
-from transformers import GPT2TokenizerFast
+from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
 from utils import checkpointing, logging
 
 
@@ -36,7 +36,11 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     logger.log_devices(device=device, logger=logger)
 
     # Data
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    if cfg.data.train == "librispeech":
+        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer.eos_token = "[EOS]"
+    else:
+        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
     vocab_size = tokenizer.vocab_size
 
     source_distribution = flow.get_source_distribution(
