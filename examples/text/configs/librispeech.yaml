@@ -1,0 +1,66 @@
+defaults:
+  - _self_
+  - override hydra/launcher: submitit_slurm
+
+compute:
+  ngpus: 4
+  nodes: 1
+
+logging:
+  log_freq: 100
+  log_lr_every: ${logging.log_freq}
+  log_file_name: stdout.log
+  enable_wandb: True
+  entity: mattias421
+  project: flow_matching
+  group: null
+
+data:
+  train: librispeech
+  valid: librispeech
+  cache_dir: /path/to/cache/dir
+  num_workers: 8
+
+training:
+  batch_size: 256
+  snapshot: 500
+  eval_freq: 1000
+  perplexity_freq: 1000
+  seed: 42
+
+eval:
+  batch_size: 512
+  sample_batch_size: 16
+  perplexity: True
+  perplexity_batch_size: 16
+
+optim:
+  weight_decay: 0.03
+  optimizer: AdamW
+  lr: 1e-4
+  beta1: 0.9
+  beta2: 0.95
+  eps: 1e-8
+  warmup: 200
+  grad_clip: 1.
+  eta_min_ratio: 0.1
+  fused: false
+  n_iters: 20000
+  log_lr_every: ${logging.log_lr_every}
+
+flow:
+  source_distribution: uniform  # [uniform, mask]
+  loss_function: cross_entropy  # [cross_entropy, generalized_kl]
+  exponent: 1.
+  scheduler_type: polynomial
+  sampling_steps: 1024
+
+model:
+  hidden_size: 256
+  cond_dim: 128
+  length: 512
+  n_blocks: 6
+  n_heads: 8
+  dropout: 0.2
+  compile: true
+

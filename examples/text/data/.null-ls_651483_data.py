@@ -38,9 +38,6 @@ def _get_hf_dataset(
         data = load_dataset(
             "HuggingFaceFW/fineweb-edu", name="CC-MAIN-2024-10", cache_dir=cache_dir
         )[mode]
-    elif name == "librispeech":
-        data = load_dataset("audiofolder", data_dir=f"{cache_dir}/LibriSpeech", cache_dir=cache_dir)
-        breakpoint()
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
 
