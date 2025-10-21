@@ -3,7 +3,7 @@ defaults:
   - override hydra/launcher: submitit_slurm
 
 compute:
-  ngpus: 4
+  ngpus: 1
   nodes: 1
 
 logging:
