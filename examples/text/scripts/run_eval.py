@@ -65,14 +65,14 @@ if __name__ == "__main__":
     parser.add_argument("--ngpus", type=int, default=8)
 
     parser.add_argument("--eval_elbo", action="store_true")
-    parser.add_argument("--eval_perplexity", action="store_true")
+    parser.add_argument("--eval_perplexity", action="store_false")
 
     # Perplexity parameters
     parser.add_argument("--sampling_steps", type=int, default=1024)
     parser.add_argument("--perplexity_n_samples", type=int, default=1024)
 
     # ELBO parameters
-    parser.add_argument("--elbo_data", type=str, default="wikitext103")
+    parser.add_argument("--elbo_data", type=str, default="librispeech")
 
     args = parser.parse_args()
     main(args)

@@ -11,7 +11,7 @@ from itertools import chain
 from typing import Dict, Iterable, Tuple
 from pathlib import Path
 
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict, load_dataset, concatenate_datasets
 from omegaconf import OmegaConf
 
 from torch.utils.data import DataLoader
@@ -45,7 +45,14 @@ def _get_hf_dataset(
             "HuggingFaceFW/fineweb-edu", name="CC-MAIN-2024-10", cache_dir=cache_dir
         )[mode]
     elif name == "librispeech":
-        data = load_dataset("audiofolder", data_dir=f"{cache_dir}/LibriSpeech", cache_dir=f"{cache_dir}/hf_datasets_cache")[mode]
+        data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
+        if mode == 'train':
+            data = concatenate_datasets([data['train.clean.100'], data['train.clean.360'], data['train.other.500']])
+        elif mode == 'validation':
+            data = concatenate_datasets([data['validation.clean'], data['validation.other']])
+        else:
+            # test clean or other
+            data = data[mode]
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
 
@@ -60,6 +67,7 @@ def _get_hf_dataset(
     logger.info("loading tokenizer")
     if name == 'librispeech':
         if mode == 'train' and not Path("outputs/tokenizer-librispeech.json").exists():
+            logger.info('training new tokenizer')
             train_tokenizer(data, "outputs/tokenizer-librispeech.json")
         tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
         tokenizer.eos_token = "[EOS]"
