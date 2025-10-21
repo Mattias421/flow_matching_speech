@@ -16,7 +16,7 @@ from flow_matching.loss import MixturePathGeneralizedKL
 from logic import evaluate, flow, generate
 
 from torch.utils.data import DataLoader
-from transformers import GPT2TokenizerFast
+from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
 from utils import checkpointing
 
 
@@ -43,7 +43,11 @@ def run_eval(
     cfg = checkpointing.load_cfg_from_path(work_dir=work_dirs.checkpoint)
 
     # Data
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    if cfg.data.train == "librispeech":
+        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer.eos_token = "[EOS]"
+    else:
+        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
     vocab_size = tokenizer.vocab_size
 
     # Flow matching
@@ -71,50 +75,50 @@ def run_eval(
         model = torch.compile(model)
         torch.set_float32_matmul_precision("high")
 
-    if eval_perplexity:
-        assert perplexity_n_samples // batch_size > 0
-
-        samples = []
-
-        for _ in range(perplexity_n_samples // batch_size):
-            samples.append(
-                generate.generate_samples(
-                    model=model,
-                    step=0,
-                    sample_dir=work_dirs.samples,
-                    vocab_size=vocab_size,
-                    tokenizer=tokenizer,
-                    rank=rank,
-                    device=device,
-                    path=path,
-                    source_distribution=source_distribution,
-                    sample_batch_size=batch_size,
-                    sequence_length=cfg.model.length,
-                    sampling_steps=sampling_steps,
-                    time_epsilon=time_epsilon,
-                )
-            )
-
-            dist.barrier()
-
-        samples = torch.cat(samples, dim=0)
-
-        perplexity = evaluate.compute_perplexity(
-            samples=samples,
-            perplexity_batch_size=cfg.eval.perplexity_batch_size,
-        )
-        dist.all_reduce(perplexity, dist.ReduceOp.AVG)
-
-        entropy = evaluate.compute_entropy(samples=samples)
-        dist.all_reduce(entropy, dist.ReduceOp.AVG)
-
-        if rank == 0:
-            print(f"Perplexity: {perplexity:.2f}, Entropy: {entropy:.2f}")
+    # if eval_perplexity:
+    #     assert perplexity_n_samples // batch_size > 0
+    #
+    #     samples = []
+    #
+    #     for _ in range(perplexity_n_samples // batch_size):
+    #         samples.append(
+    #             generate.generate_samples(
+    #                 model=model,
+    #                 step=0,
+    #                 sample_dir=work_dirs.samples,
+    #                 vocab_size=vocab_size,
+    #                 tokenizer=tokenizer,
+    #                 rank=rank,
+    #                 device=device,
+    #                 path=path,
+    #                 source_distribution=source_distribution,
+    #                 sample_batch_size=batch_size,
+    #                 sequence_length=cfg.model.length,
+    #                 sampling_steps=sampling_steps,
+    #                 time_epsilon=time_epsilon,
+    #             )
+    #         )
+    #
+    #         dist.barrier()
+    #
+    #     samples = torch.cat(samples, dim=0)
+    #
+    #     perplexity = evaluate.compute_perplexity(
+    #         samples=samples,
+    #         perplexity_batch_size=cfg.eval.perplexity_batch_size,
+    #     )
+    #     dist.all_reduce(perplexity, dist.ReduceOp.AVG)
+    #
+    #     entropy = evaluate.compute_entropy(samples=samples)
+    #     dist.all_reduce(entropy, dist.ReduceOp.AVG)
+    #
+    #     if rank == 0:
+    #         print(f"Perplexity: {perplexity:.2f}, Entropy: {entropy:.2f}")
 
     if eval_elbo:
         data_state = data._get_dataset(
             name=elbo_data,
-            mode="validation",
+            mode="test",
             cache_dir=cfg.data.cache_dir,
             block_size=cfg.model.length,
             num_proc=cfg.data.num_workers,
