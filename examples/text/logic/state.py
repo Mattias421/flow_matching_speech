@@ -59,7 +59,7 @@ class TrainState:
             self.optimizer.load_state_dict(loaded_state["optimizer"])
             self.model.module.load_state_dict(loaded_state["model"])
             self.step = loaded_state["step"]
-            self._data_state.test.load_state_dict(loaded_state["test_sampler"])
+            self._data_state.test.sampler.load_state_dict(loaded_state["test_sampler"])
             self._data_state.train.sampler.load_state_dict(
                 loaded_state["train_sampler"]
             )

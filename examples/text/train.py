@@ -35,14 +35,9 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
     logger.log_devices(device=device, logger=logger)
 
-    # Data
-    if cfg.data.train == "librispeech":
-        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
-        tokenizer.eos_token = "[EOS]"
-    else:
-        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    vocab_size = tokenizer.vocab_size
 
+    # TODO remove hardcoded vocab_size
+    vocab_size=2048
     source_distribution = flow.get_source_distribution(
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
     )
@@ -78,6 +73,14 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
     train_iter, eval_iter = data.get_data_loaders(config=cfg, data_state=data_state)
+
+    # Data
+    if cfg.data.train == "librispeech":
+        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer.eos_token = "[EOS]"
+    else:
+        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    vocab_size = tokenizer.vocab_size
 
     if cfg.model.compile:
         state.compile_model()
