@@ -98,7 +98,7 @@ def _get_hf_dataset(
         load_from_cache_file=True,
     )
 
-    if name == "fineweb-edu":
+    if name == "fineweb-edu" or name == "librispeech":
         features = tokenized_dataset.features.keys()
         for k in features:
             if k != "input_ids":
