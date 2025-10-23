@@ -11,7 +11,7 @@ cd $EXP/flow_matching_speech/examples/text
 ml GCC GCCcore binutils libsndfile cuDNN
 source .venv/bin/activate
 export SUBMITIT_EXECUTOR=slurm
-python run_train.py --config-name librispeech data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs optim.lr=1e-3 optim.warmup=200 -m hydra.launcher.partition=gpu-h100
+python run_train.py --config-name librispeech data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs optim.lr=1e-3 optim.warmup=200 -m
 
 # python run_train.py --config-name librispeech data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs optim.lr=1e-5 optim.warmup=200,500,1000,100 -m 
 

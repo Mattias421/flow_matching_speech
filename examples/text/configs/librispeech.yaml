@@ -85,5 +85,5 @@ hydra:
     srun_args:
         - --export=ALL
     setup:
-        - ml binutils GCCcore GCC libsndfile
+        - ml binutils GCCcore GCC libsndfile cuDNN
         - source .venv/bin/activate
