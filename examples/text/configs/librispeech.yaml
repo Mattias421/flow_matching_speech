@@ -32,7 +32,9 @@ eval:
   batch_size: 128
   sample_batch_size: 16
   perplexity: True
-  perplexity_batch_size: 16
+  perplexity_batch_size: 128
+  n_gen_iter: 4
+  kenlm_path: /path/to/kenlm
 
 optim:
   weight_decay: 0.03
@@ -58,7 +60,7 @@ flow:
 model:
   hidden_size: 768
   cond_dim: 128
-  length: 512
+  length: 512 # TODO change this for speech tokens, maybe 1024 length
   n_blocks: 12
   n_heads: 12
   dropout: 0

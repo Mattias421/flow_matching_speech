@@ -35,6 +35,7 @@ def generate_samples(
     sample_batch_size: int,
     sequence_length: int,
     sampling_steps: int,
+    n_gen_iter: int = 1,
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
@@ -52,15 +53,18 @@ def generate_samples(
         tensor_size=(sample_batch_size, sequence_length), device=device
     )
 
-    sample = solver.sample(
-        x_init=x_init,
-        step_size=1 / sampling_steps,
-        verbose=True,
-        dtype_categorical=dtype_categorical,
-        time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
-    )
+    sentences = []
 
-    sentences = tokenizer.batch_decode(sample)
+    for i in range(n_gen_iter):
+        sample = solver.sample(
+            x_init=x_init,
+            step_size=1 / sampling_steps,
+            verbose=True,
+            dtype_categorical=dtype_categorical,
+            time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
+        )
+
+        sentences.extend(tokenizer.batch_decode(sample))
 
     if sample_dir is not None:
         file_name = sample_dir / f"iter_{step}" / f"sample_{rank}.txt"
@@ -68,6 +72,6 @@ def generate_samples(
 
         with open(file_name, "w") as file:
             for sentence in sentences:
-                file.write(f"{sentence}\n{'=' * 20} New sample {'=' * 20}\n")
+                file.write(f"{sentence}\n")
 
     return sample
