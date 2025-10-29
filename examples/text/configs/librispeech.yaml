@@ -75,7 +75,7 @@ hydra:
   launcher:
     max_num_timeout: 100000
     timeout_min: 4320
-    partition: gpu,gpu-h100
+    partition: gpu,gpu-h100,gpu-h100-nvl
     qos: gpu:1
     gpus_per_node: ${compute.ngpus}
     cpus_per_task: 8
