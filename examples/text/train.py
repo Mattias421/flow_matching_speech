@@ -186,28 +186,28 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             value=entropy.item(), name="Entropy", stage="Evaluation", step=state.step
             )
 
-	    for o in range(2,5):
-                perplexity = evaluate.compute_perplexity(
-                sample_dir=work_dirs.samples,
-                step=state.step,
-                kenlm_path=cfg.eval.kenlm_path,
-                dataloader=eval_iter_no_cycle,
-                tokenizer=tokenizer,
-                o=o,
-                rank=rank,
-                )
+            for o in range(2,5):
+                    perplexity = evaluate.compute_perplexity(
+                    sample_dir=work_dirs.samples,
+                    step=state.step,
+                    kenlm_path=cfg.eval.kenlm_path,
+                    dataloader=eval_iter_no_cycle,
+                    tokenizer=tokenizer,
+                    o=o,
+                    rank=rank,
+                    )
 
 
-                perplexity = torch.tensor([perplexity], device=device)
-                entropy = torch.tensor([entropy], device=device)
+                    perplexity = torch.tensor([perplexity], device=device)
+                    entropy = torch.tensor([entropy], device=device)
 
-                dist.broadcast(perplexity, src=0)
+                    dist.broadcast(perplexity, src=0)
 
-                logger.log_metric(
-                value=perplexity.item(), name=f"Perplexity_o{o}", stage="Evaluation", step=state.step
-                )
+                    logger.log_metric(
+                    value=perplexity.item(), name=f"Perplexity_o{o}", stage="Evaluation", step=state.step
+                    )
 
-	dist.barrier()
+        dist.barrier()
 
         state.step = state.step + 1
 
