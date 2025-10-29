@@ -16,8 +16,17 @@ from hydra.types import RunMode
 from omegaconf import open_dict
 from omegaconf.dictconfig import DictConfig
 from train import run_mp_training
+import socket
+from contextlib import closing
 
 from utils import checkpointing
+
+def find_free_port():
+    """Finds a free port on the host machine."""
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))  # Bind to port 0 to let the OS pick a free port
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]  # Return the port number assigned by the OS
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
@@ -37,7 +46,7 @@ def main(cfg: DictConfig):
     with open_dict(cfg):
         cfg.work_dir = work_dir
 
-    port = 12346
+    port = find_free_port()
 
     if cfg.compute.ngpus == 1:
         run_mp_training(rank=0, world_size=1, cfg=cfg, port=port)

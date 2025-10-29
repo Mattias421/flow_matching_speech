@@ -43,7 +43,7 @@ def compute_perplexity(
         open(f"./{sample_dir}/iter_{step}/hyp_o{o}.arpa", "w") as hyp_arpa,
     ):
         subprocess.run(
-            [f"{kenlm_path}/build/bin/lmplz", f"-o{o}", "--discount_fallback"],
+            [f"{kenlm_path}/build/bin/lmplz", f"-o{o}", "--discount_fallback", "-S50%"],
             stdin=hyp_txt,
             stdout=hyp_arpa,
         )

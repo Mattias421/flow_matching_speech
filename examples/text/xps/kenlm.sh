@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --time=80:00:00
 #SBATCH --cpus-per-task=4
-#SBATCH --mem-per-cpu=8G
+#SBATCH --mem-per-cpu=16G
 #SBATCH --output=logs/slurm/%x-%a-2.out
 #SBATCH --export=NONE
 
