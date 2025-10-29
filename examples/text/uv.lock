@@ -773,6 +773,12 @@ wheels = [
 ]
 
 [[package]]
+name = "kenlm"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/6e/f4e159cef39ea4ef2244b4aa32857d447d60a5d0ee269e1b1f8d3723c03e/kenlm-0.3.0.tar.gz", hash = "sha256:c4628bb9fb63c8a6f9240035b8b037385cfc404cb72e933cf48878291edac1e8", size = 427500 }
+
+[[package]]
 name = "lazy-loader"
 version = "0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2305,6 +2311,7 @@ dependencies = [
     { name = "einops" },
     { name = "hydra-core" },
     { name = "hydra-submitit-launcher" },
+    { name = "kenlm" },
     { name = "librosa" },
     { name = "numpy" },
     { name = "pandas" },
@@ -2322,6 +2329,7 @@ requires-dist = [
     { name = "einops", specifier = ">=0.8.1" },
     { name = "hydra-core", specifier = ">=1.3.2" },
     { name = "hydra-submitit-launcher", specifier = ">=1.2.0" },
+    { name = "kenlm", specifier = ">=0.3.0" },
     { name = "librosa", specifier = ">=0.11.0" },
     { name = "numpy", specifier = "==1.26.4" },
     { name = "pandas", specifier = "==2.0.0" },

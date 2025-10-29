@@ -9,6 +9,7 @@
 import math
 from collections import Counter
 from typing import List
+import subprocess
 
 import torch
 import torch.nn.functional as F
@@ -20,6 +21,7 @@ from torch import nn, Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import GPT2LMHeadModel
+import kenlm
 
 from logic.flow import SourceDistribution
 
@@ -30,22 +32,28 @@ class WrappedModel(ModelWrapper):
 
 
 @torch.no_grad()
-def compute_perplexity(samples: Tensor, perplexity_batch_size: int) -> Tensor:
-    eval_model = GPT2LMHeadModel.from_pretrained("gpt2-large").to(samples.device).eval()
-    batches = samples.shape[0] // perplexity_batch_size
-    total_perplexity = 0
+def compute_perplexity(sample_dir, step, kenlm_path, dataloader, tokenizer, o: int = 2, rank=0) -> Tensor:
 
-    for i in range(batches):
-        s = samples[i * perplexity_batch_size : (i + 1) * perplexity_batch_size]
-        _, logits = eval_model(s, labels=s)[:2]
-        logits = logits.transpose(-1, -2).detach()
+    if rank !=0:
+        return 0
 
-        perplexity = F.cross_entropy(logits[..., :-1], s[..., 1:], reduction="none")
-        perplexity = perplexity.mean(dim=-1).exp().mean()
+    file_name = sample_dir / f"iter_{step}" / "sample_0.txt" # only consider rank 0
 
-        total_perplexity += perplexity
+    with open(file_name, 'r') as hyp_txt, open(f"./{sample_dir}/iter_{step}/hyp_o{o}.arpa", 'w') as hyp_arpa: 
+        subprocess.run([f"{kenlm_path}/build/bin/lmplz", f"-o{o}", "--discount_fallback"], stdin=hyp_txt, stdout=hyp_arpa)
 
-    total_perplexity /= batches
+    kenlm_model = kenlm.Model(f"./{sample_dir}/iter_{step}/hyp_o{o}.arpa")
+    full_score = 0
+    num_tok = 0
+
+    for x_1 in tqdm(dataloader, total=len(dataloader)):
+        ref = tokenizer.batch_decode(x_1["input_ids"])
+
+        for r in ref:
+            full_score += kenlm_model.score(r)
+            num_tok += x_1["input_ids"].shape[-1] # assume batch is full
+
+    total_perplexity = 10.0 ** (-full_score / num_tok)
 
     return total_perplexity
 

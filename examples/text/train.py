@@ -72,7 +72,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    train_iter, eval_iter = data.get_data_loaders(config=cfg, data_state=data_state)
+    train_iter, eval_iter, eval_iter_no_cycle  = data.get_data_loaders(config=cfg, data_state=data_state)
 
     # Data
     if cfg.data.train == "librispeech":
@@ -162,6 +162,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             logger.info("Generating text...", step=state.step)
 
+            # only run eval on one gpu
             samples = generate.generate_samples(
                 model=state.model,
                 step=state.step,
@@ -175,23 +176,34 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 sample_batch_size=cfg.eval.sample_batch_size,
                 sequence_length=cfg.model.length,
                 sampling_steps=cfg.flow.sampling_steps,
+                n_gen_iter=cfg.eval.n_gen_iter,
                 time_epsilon=time_epsilon,
             )
 
             perplexity = evaluate.compute_perplexity(
-                samples=samples,
-                perplexity_batch_size=cfg.eval.perplexity_batch_size,
-            )
-            dist.all_reduce(perplexity, dist.ReduceOp.AVG)
-            logger.log_metric(
-                value=perplexity, name="Perplexity", stage="Evaluation", step=state.step
+                    sample_dir=work_dirs.samples,
+                    step=state.step,
+                    kenlm_path=cfg.eval.kenlm_path,
+                    dataloader=eval_iter_no_cycle,
+                    tokenizer=tokenizer,
+                    o=2,
+                    rank=rank,
             )
 
             entropy = evaluate.compute_entropy(samples=samples)
-            dist.all_reduce(entropy, dist.ReduceOp.AVG)
+
+            perplexity = torch.tensor([perplexity], device=device)
+            entropy = torch.tensor([entropy], device=device)
+
+            dist.broadcast(perplexity, src=0)
+            dist.broadcast(entropy, src=0)
 
             logger.log_metric(
-                value=entropy, name="Entropy", stage="Evaluation", step=state.step
+                value=perplexity.item(), name="Perplexity", stage="Evaluation", step=state.step
+            )
+
+            logger.log_metric(
+                value=entropy.item(), name="Entropy", stage="Evaluation", step=state.step
             )
 
             dist.barrier()
