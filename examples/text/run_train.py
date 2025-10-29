@@ -24,7 +24,7 @@ from utils import checkpointing
 def main(cfg: DictConfig):
     if "load_dir" in cfg:
         work_dir = cfg.load_dir
-        cfg = checkpointing.load_hydra_config_from_run(cfg.load_dir)
+        cfg = checkpointing.load_cfg_from_path(cfg.load_dir)
     else:
         hydra_cfg = HydraConfig.get()
         work_dir = (

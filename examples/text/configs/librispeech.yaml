@@ -24,8 +24,8 @@ data:
 training:
   batch_size: 128
   snapshot: 500
-  eval_freq: 8000
-  perplexity_freq: 20000
+  eval_freq: 500
+  perplexity_freq: 500
   seed: 42
 
 eval:
@@ -33,13 +33,13 @@ eval:
   sample_batch_size: 16
   perplexity: True
   perplexity_batch_size: 128
-  n_gen_iter: 4
+  n_gen_iter: 8
   kenlm_path: /path/to/kenlm
 
 optim:
   weight_decay: 0.03
   optimizer: AdamW
-  lr: 1e-4
+  lr: 1e-3
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
@@ -87,5 +87,5 @@ hydra:
     srun_args:
         - --export=ALL
     setup:
-        - ml binutils GCCcore GCC libsndfile cuDNN
+        - ml binutils GCCcore GCC libsndfile cuDNN bzip2
         - source .venv/bin/activate

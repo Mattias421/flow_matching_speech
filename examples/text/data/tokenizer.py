@@ -11,6 +11,7 @@ from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
 
+
 def wt_detokenizer(string):
     # contractions
     string = string.replace("s '", "s'")
@@ -43,6 +44,7 @@ def wt_detokenizer(string):
     string = string.replace(" 's", "'s")
     return string
 
+
 def train_tokenizer(data, save_file):
     def get_training_corpus(dataset, batch_size=1000):
         for i in range(0, len(dataset), batch_size):
@@ -54,7 +56,7 @@ def train_tokenizer(data, save_file):
 
     trainer = BpeTrainer(
         vocab_size=2048,  # You can change this
-        special_tokens=["[BOS]", "[EOS]"]
+        special_tokens=["[BOS]", "[EOS]"],
     )
 
     tokenizer.train_from_iterator(text_iterator, trainer=trainer)

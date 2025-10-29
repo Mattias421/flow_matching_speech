@@ -13,7 +13,7 @@ import torch.distributed as dist
 from data import data
 from flow_matching.loss import MixturePathGeneralizedKL
 
-from logic import evaluate, flow, generate
+from logic import evaluate, flow
 
 from torch.utils.data import DataLoader
 from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
@@ -44,7 +44,9 @@ def run_eval(
 
     # Data
     if cfg.data.train == "librispeech":
-        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer = PreTrainedTokenizerFast(
+            tokenizer_file="outputs/tokenizer-librispeech.json"
+        )
         tokenizer.eos_token = "[EOS]"
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")

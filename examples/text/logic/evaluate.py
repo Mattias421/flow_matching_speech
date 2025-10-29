@@ -12,7 +12,6 @@ from typing import List
 import subprocess
 
 import torch
-import torch.nn.functional as F
 from flow_matching.loss import MixturePathGeneralizedKL
 from flow_matching.path import MixtureDiscreteProbPath, ProbPath
 from flow_matching.path.scheduler import PolynomialConvexScheduler
@@ -20,7 +19,6 @@ from flow_matching.utils import ModelWrapper
 from torch import nn, Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import GPT2LMHeadModel
 import kenlm
 
 from logic.flow import SourceDistribution
@@ -32,15 +30,23 @@ class WrappedModel(ModelWrapper):
 
 
 @torch.no_grad()
-def compute_perplexity(sample_dir, step, kenlm_path, dataloader, tokenizer, o: int = 2, rank=0) -> Tensor:
-
-    if rank !=0:
+def compute_perplexity(
+    sample_dir, step, kenlm_path, dataloader, tokenizer, o: int = 2, rank=0
+) -> Tensor:
+    if rank != 0:
         return 0
 
-    file_name = sample_dir / f"iter_{step}" / "sample_0.txt" # only consider rank 0
+    file_name = sample_dir / f"iter_{step}" / "sample_0.txt"  # only consider rank 0
 
-    with open(file_name, 'r') as hyp_txt, open(f"./{sample_dir}/iter_{step}/hyp_o{o}.arpa", 'w') as hyp_arpa: 
-        subprocess.run([f"{kenlm_path}/build/bin/lmplz", f"-o{o}", "--discount_fallback"], stdin=hyp_txt, stdout=hyp_arpa)
+    with (
+        open(file_name, "r") as hyp_txt,
+        open(f"./{sample_dir}/iter_{step}/hyp_o{o}.arpa", "w") as hyp_arpa,
+    ):
+        subprocess.run(
+            [f"{kenlm_path}/build/bin/lmplz", f"-o{o}", "--discount_fallback"],
+            stdin=hyp_txt,
+            stdout=hyp_arpa,
+        )
 
     kenlm_model = kenlm.Model(f"./{sample_dir}/iter_{step}/hyp_o{o}.arpa")
     full_score = 0
@@ -51,7 +57,7 @@ def compute_perplexity(sample_dir, step, kenlm_path, dataloader, tokenizer, o: i
 
         for r in ref:
             full_score += kenlm_model.score(r)
-            num_tok += x_1["input_ids"].shape[-1] # assume batch is full
+            num_tok += x_1["input_ids"].shape[-1]  # assume batch is full
 
     total_perplexity = 10.0 ** (-full_score / num_tok)
 

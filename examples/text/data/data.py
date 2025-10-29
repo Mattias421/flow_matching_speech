@@ -46,11 +46,18 @@ def _get_hf_dataset(
         )[mode]
     elif name == "librispeech":
         data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
-        if mode == 'train':
-            # data = concatenate_datasets([data['train.clean.100'], data['train.clean.360'], data['train.other.500']])
-            data = data['train.clean.100']
-        elif mode == 'validation':
-            data = concatenate_datasets([data['validation.clean'], data['validation.other']])
+        if mode == "train":
+            data = concatenate_datasets(
+                [
+                    data["train.clean.100"],
+                    data["train.clean.360"],
+                    data["train.other.500"],
+                ]
+            )
+        elif mode == "validation":
+            data = concatenate_datasets(
+                [data["validation.clean"], data["validation.other"]]
+            )
         else:
             # test clean or other
             data = data[mode]
@@ -66,11 +73,13 @@ def _get_hf_dataset(
         return detok
 
     logger.info("loading tokenizer")
-    if name == 'librispeech':
-        if mode == 'train' and not Path("outputs/tokenizer-librispeech.json").exists():
-            logger.info('training new tokenizer')
+    if name == "librispeech":
+        if mode == "train" and not Path("outputs/tokenizer-librispeech.json").exists():
+            logger.info("training new tokenizer")
             train_tokenizer(data, "outputs/tokenizer-librispeech.json")
-        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer = PreTrainedTokenizerFast(
+            tokenizer_file="outputs/tokenizer-librispeech.json"
+        )
         tokenizer.eos_token = "[EOS]"
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
@@ -96,7 +105,7 @@ def _get_hf_dataset(
         preprocess_and_tokenize,
         batched=True,
         num_proc=num_proc,
-        load_from_cache_file=False,
+        load_from_cache_file=True,
     )
 
     if name == "fineweb-edu" or name == "librispeech":
@@ -124,7 +133,7 @@ def _get_hf_dataset(
 
     logger.info("Chunking data")
     chunked_dataset = tokenized_dataset.map(
-        group_texts, batched=True, num_proc=num_proc, load_from_cache_file=False
+        group_texts, batched=True, num_proc=num_proc, load_from_cache_file=True
     )
     chunked_dataset = chunked_dataset.with_format("torch")
 
@@ -154,9 +163,9 @@ def _get_dataset(
     batch_size: int,
     ngpus: int,
 ) -> Dataset:
-    assert (
-        batch_size % ngpus == 0
-    ), f"{mode} batch size must be divisible by number of gpus."
+    assert batch_size % ngpus == 0, (
+        f"{mode} batch size must be divisible by number of gpus."
+    )
 
     dataset = _get_hf_dataset(
         name=name,
@@ -222,12 +231,12 @@ def get_data_loaders(
     )
 
     valid_loader_no_cycle = DataLoader(
-            data_state.test.dataset,
-            batch_size=config.eval.batch_size // config.compute.ngpus,
-            sampler=data_state.test.sampler,
-            num_workers=config.data.num_workers,
-            pin_memory=True,
-            shuffle=(data_state.test.sampler is None),
-        )
+        data_state.test.dataset,
+        batch_size=config.eval.batch_size // config.compute.ngpus,
+        sampler=data_state.test.sampler,
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+        shuffle=(data_state.test.sampler is None),
+    )
 
     return iter(train_loader), iter(valid_loader), valid_loader_no_cycle
