@@ -11,11 +11,13 @@ from itertools import chain
 from typing import Dict, Iterable, Tuple
 from pathlib import Path
 
-from datasets import DatasetDict, load_dataset, concatenate_datasets
+from datasets import DatasetDict, load_dataset, concatenate_datasets, Audio
 from omegaconf import OmegaConf
 
+import torch
 from torch.utils.data import DataLoader
 from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
+from transformers import MimiModel, AutoFeatureExtractor
 
 from data.tokenizer import wt_detokenizer, train_tokenizer
 from data.utils import cycle_loader, StatefulDistributedSampler
@@ -61,6 +63,12 @@ def _get_hf_dataset(
         else:
             # test clean or other
             data = data[mode]
+        data = data.cast_column(
+            "audio", 
+            Audio(sampling_rate=24000) # mimi expects 24khz
+        )
+    elif name == "librispeech_dummy":
+        data = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
 
@@ -73,42 +81,72 @@ def _get_hf_dataset(
         return detok
 
     logger.info("loading tokenizer")
-    if name == "librispeech":
+    if "librispeech" in name:
         if mode == "train" and not Path("outputs/tokenizer-librispeech.json").exists():
             logger.info("training new tokenizer")
             train_tokenizer(data, "outputs/tokenizer-librispeech.json")
+
         tokenizer = PreTrainedTokenizerFast(
             tokenizer_file="outputs/tokenizer-librispeech.json"
         )
-        tokenizer.eos_token = "[EOS]"
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
 
-    EOS = tokenizer.encode(tokenizer.eos_token)[0]
+    # added tokens
+    EOS = 2048
+    S2T = 2049
+
+    # load the model + feature extractor (for pre-processing the audio)
+    model = MimiModel.from_pretrained("kyutai/mimi").to('cuda')
+    feature_extractor = AutoFeatureExtractor.from_pretrained("kyutai/mimi")
 
     def preprocess_and_tokenize(example: Dict):
         text = example["text"]
+        audio = example["audio"]
+        audio = [a['array'] for a in audio]
+        lens = [a.shape[0] for a in audio]
+        max_len = max(lens)
+        lens = [l / max_len for l in lens]
+
+        inputs = feature_extractor(raw_audio=audio, sampling_rate=feature_extractor.sampling_rate, return_tensors="pt").to('cuda')
+
+        audio_tokens = model.encode(inputs["input_values"]).audio_codes[:,0,:].cpu().tolist() # 0th codebook is semantic
 
         if detokenizer is not None:
             text = _apply_detokenizer(detokenizer)(text)
 
-        tokens = tokenizer(text, return_attention_mask=False)
-        # add in EOS token following
-        # https://github.com/jcpeterson/openwebtext/blob/master/tokenize_text.py#L67
-        for token in tokens["input_ids"]:
-            token.append(EOS)
+        text_tokens = tokenizer(text, return_attention_mask=False)
 
-        return tokens
+        input_ids = []
+
+        for text, audio, audio_len in zip(text_tokens['input_ids'], audio_tokens, lens):
+            seq = []
+            seq += audio[:int(audio_len*len(audio))]
+            seq.append(S2T)
+            seq += text
+            seq.append(EOS)
+            print(len(seq))
+
+            input_ids.append(seq)
+
+        print(input_ids)
+
+        return {"input_ids":input_ids}
 
     logger.info("Tokenizing data")
     tokenized_dataset = data.map(
         preprocess_and_tokenize,
         batched=True,
-        num_proc=num_proc,
+        batch_size=num_proc,
+        num_proc=1,
         load_from_cache_file=True,
     )
 
-    if name == "fineweb-edu" or name == "librispeech":
+    model = model.cpu()
+    del model
+    del feature_extractor
+
+    if name == "fineweb-edu" or "librispeech" in name:
         features = tokenized_dataset.features.keys()
         for k in features:
             if k != "input_ids":

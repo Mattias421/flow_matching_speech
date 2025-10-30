@@ -37,7 +37,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
 
     # TODO remove hardcoded vocab_size
-    vocab_size=2048
+    vocab_size=2050
     source_distribution = flow.get_source_distribution(
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
     )

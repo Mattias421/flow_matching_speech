@@ -16,24 +16,24 @@ logging:
   group: null
 
 data:
-  train: librispeech
-  valid: librispeech
+  train: librispeech_dummy
+  valid: librispeech_dummy
   cache_dir: /path/to/cache/dir
   num_workers: 8
   debug: false
 
 training:
-  batch_size: 128
+  batch_size: 16
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 500
   seed: 42
 
 eval:
-  batch_size: 128
+  batch_size: 16
   sample_batch_size: 16
   perplexity: True
-  perplexity_batch_size: 128
+  perplexity_batch_size: 16
   n_gen_iter: 8
   kenlm_path: /path/to/kenlm
 

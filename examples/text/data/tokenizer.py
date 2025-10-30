@@ -56,11 +56,12 @@ def train_tokenizer(data, save_file):
 
     trainer = BpeTrainer(
         vocab_size=2048,  # You can change this
-        special_tokens=["[BOS]", "[EOS]"],
     )
 
     tokenizer.train_from_iterator(text_iterator, trainer=trainer)
+    tokenizer.add_special_tokens(["[EOS]", "[S2T]"])
     tokenizer.eos_token = "[EOS]"
+    tokenizer.s2t_token = "[S2T]"
     tokenizer.save(save_file)
 
     return tokenizer
