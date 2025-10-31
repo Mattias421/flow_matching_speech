@@ -125,11 +125,8 @@ def _get_hf_dataset(
             seq.append(S2T)
             seq += text
             seq.append(EOS)
-            print(len(seq))
 
             input_ids.append(seq)
-
-        print(input_ids)
 
         return {"input_ids":input_ids}
 
@@ -137,35 +134,44 @@ def _get_hf_dataset(
     tokenized_dataset = data.map(
         preprocess_and_tokenize,
         batched=True,
-        batch_size=num_proc,
+        batch_size=8,
         num_proc=1,
         load_from_cache_file=True,
     )
 
     model = model.cpu()
-    del model
-    del feature_extractor
+
+    keep_columns = ["input_ids", "id"]
 
     if name == "fineweb-edu" or "librispeech" in name:
         features = tokenized_dataset.features.keys()
         for k in features:
-            if k != "input_ids":
+            if k not in keep_columns:
                 tokenized_dataset = tokenized_dataset.remove_columns(k)
     else:
         tokenized_dataset = tokenized_dataset.remove_columns("text")
 
     def group_texts(examples: Dict):
-        # Concatenate all texts.
-        concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
-        total_length = len(concatenated_examples[list(examples.keys())[0]])
-        # We drop the small remainder, and if the total_length < block_size  we exclude this batch and return an empty dict.
-        # We could add padding if the model supported it instead of this drop, you can customize this part to your needs.
-        total_length = (total_length // block_size) * block_size
-        # Split by chunks of max_len.
-        result = {
-            k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
-            for k, t in concatenated_examples.items()
-        }
+
+        result = {'id':[], 'input_ids':[]}
+        current_chunk = {'id':[], 'input_ids':[]}
+
+        for utt_id, input_ids in zip(examples['id'], examples['input_ids']):
+            if len(current_chunk['input_ids']) + len(input_ids) > block_size:
+                # block is ready to be added to result
+                current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
+
+                result['input_ids'].append(current_chunk['input_ids'])
+                result['id'].append(current_chunk['id'])
+
+                current_chunk = {'id':[], 'input_ids':[]}
+
+            current_chunk['id'].append(utt_id)
+            current_chunk['input_ids'] += input_ids
+
+        current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
+        result['input_ids'].append(current_chunk['input_ids'])
+        result['id'].append(current_chunk['id'])
 
         return result
 
@@ -240,6 +246,13 @@ def get_data_state(config: OmegaConf) -> DataState:
 
     return DataState(train=train, test=test)
 
+def collate_fn(batch):
+    utt_ids = [item['id'] for item in batch]
+
+    input_ids = torch.stack([item['input_ids'] for item in batch])
+
+    return {"id":utt_ids, "input_ids":input_ids}
+
 
 def get_data_loaders(
     config: OmegaConf,
@@ -249,6 +262,7 @@ def get_data_loaders(
         DataLoader(
             data_state.train.dataset,
             batch_size=config.training.batch_size // config.compute.ngpus,
+            collate_fn=collate_fn,
             sampler=data_state.train.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
@@ -261,6 +275,7 @@ def get_data_loaders(
         DataLoader(
             data_state.test.dataset,
             batch_size=config.eval.batch_size // config.compute.ngpus,
+            collate_fn=collate_fn,
             sampler=data_state.test.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
@@ -271,6 +286,7 @@ def get_data_loaders(
     valid_loader_no_cycle = DataLoader(
         data_state.test.dataset,
         batch_size=config.eval.batch_size // config.compute.ngpus,
+        collate_fn=collate_fn,
         sampler=data_state.test.sampler,
         num_workers=config.data.num_workers,
         pin_memory=True,

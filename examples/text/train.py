@@ -75,12 +75,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     train_iter, eval_iter, eval_iter_no_cycle  = data.get_data_loaders(config=cfg, data_state=data_state)
 
     # Data
-    if cfg.data.train == "librispeech":
+    if "librispeech" in cfg.data.train:
         tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
         tokenizer.eos_token = "[EOS]"
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    vocab_size = tokenizer.vocab_size
+    vocab_size = 2050 # TODO hardcoded vocab_size
 
     if cfg.model.compile:
         state.compile_model()
@@ -154,6 +154,30 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             dist.all_reduce(eval_loss, dist.ReduceOp.AVG)
             logger.log_metric(
                 value=eval_loss.item(), name="Loss", stage="Evaluation", step=state.step
+            )
+
+        # Generation
+        if state.step % cfg.training.wer_freq == 0:
+            state.eval()
+
+            logger.info("Generating text...", step=state.step)
+
+            samples = generate.generate_transcription(
+                model=state.model,
+                step=state.step,
+                sample_dir=work_dirs.samples,
+                vocab_size=vocab_size,
+                dataloader=eval_iter_no_cycle,
+                tokenizer=tokenizer,
+                rank=rank,
+                device=device,
+                path=path,
+                source_distribution=source_distribution,
+                sample_batch_size=cfg.eval.sample_batch_size,
+                sequence_length=cfg.model.length,
+                sampling_steps=cfg.flow.sampling_steps,
+                n_gen_iter=cfg.eval.n_gen_iter,
+                time_epsilon=time_epsilon,
             )
 
         # Generation

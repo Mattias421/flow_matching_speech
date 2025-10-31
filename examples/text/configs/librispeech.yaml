@@ -26,7 +26,8 @@ training:
   batch_size: 128
   snapshot: 500
   eval_freq: 500
-  perplexity_freq: 500
+  perplexity_freq: 5000000
+  wer_freq: 500
   seed: 42
 
 eval:
@@ -52,7 +53,7 @@ optim:
   log_lr_every: ${logging.log_lr_every}
 
 flow:
-  source_distribution: uniform  # [uniform, mask]
+  source_distribution: asr  # [asr]
   loss_function: cross_entropy  # [cross_entropy, generalized_kl]
   exponent: 1.
   scheduler_type: polynomial

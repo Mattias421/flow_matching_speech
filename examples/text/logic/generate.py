@@ -4,8 +4,10 @@
 # This source code is licensed under the CC-by-NC license found in the
 # LICENSE file in the root directory of this source tree.
 
+import re
 from pathlib import Path
 from typing import Optional
+from itertools import chain
 
 import torch
 from flow_matching.path import ProbPath
@@ -13,6 +15,7 @@ from flow_matching.solver import MixtureDiscreteEulerSolver
 from flow_matching.utils import ModelWrapper
 from torch import nn, Tensor
 from transformers.tokenization_utils import PreTrainedTokenizer
+from tqdm import tqdm
 
 from .flow import SourceDistribution
 
@@ -75,3 +78,81 @@ def generate_samples(
                 file.write(f"{sentence}\n")
 
     return sample
+
+def generate_transcription(
+    model: nn.Module,
+    step: int,
+    vocab_size: int,
+    dataloader,
+    tokenizer: PreTrainedTokenizer,
+    rank: int,
+    device: torch.device,
+    path: ProbPath,
+    source_distribution: SourceDistribution,
+    sample_batch_size: int,
+    sequence_length: int,
+    sampling_steps: int,
+    n_gen_iter: int = 1,
+    time_epsilon: float = 0.0,
+    sample_dir: Optional[Path] = None,
+    dtype_categorical: torch.dtype = torch.float64,
+) -> Tensor:
+    wrapped_probability_denoiser = WrappedModel(model=model)
+
+    add_token = 1 if source_distribution.masked else 0
+    solver = MixtureDiscreteEulerSolver(
+        model=wrapped_probability_denoiser,
+        path=path,
+        vocabulary_size=vocab_size + add_token,
+    )
+
+    hyp_trn = []
+    ref_trn = []
+
+
+    for batch in tqdm(dataloader, total=len(dataloader)):
+        ids = batch['id']
+        x_1 = batch['input_ids'].to(device)
+
+        x_0 = source_distribution.sample_like(x_1)
+
+        sample = solver.sample(
+            x_init=x_0,
+            step_size=1 / sampling_steps,
+            verbose=True,
+            dtype_categorical=dtype_categorical,
+            time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
+        )
+
+        toggle = torch.zeros_like(sample)
+        toggle[sample == 2049] = 1
+        toggle[sample == 2048] = -1
+        text_ids = torch.cumsum(toggle, dim=1)
+    
+        text = ''.join(tokenizer.convert_ids_to_tokens(sample[text_ids==1]))
+        text = text[5:] # remove first s2t token
+        text += "[S2T]" # add it to end
+
+        utt_ids = chain(*batch["id"])
+
+        hyp_trn.append(re.sub(r"\[S2T\]", lambda m : f" ({next(utt_ids)})\n", text))
+
+        text = ''.join(tokenizer.convert_ids_to_tokens(x_1[text_ids==1]))
+        text = text[5:] # remove first s2t token
+        text += "[S2T]" # add it to end
+
+        utt_ids = chain(*batch["id"])
+
+        ref_trn.append(re.sub(r"\[S2T\]", lambda m : f" ({next(utt_ids)})\n", text))
+
+    if sample_dir is not None:
+        hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"
+        ref_file_name = sample_dir / f"iter_{step}" / "ref.trn"
+
+        hyp_file_name.parents[0].mkdir(exist_ok=True, parents=True)
+
+        with open(hyp_file_name, "w") as hyp_file, open(ref_file_name, "w") as ref_file:
+            for hyp, ref in zip(hyp_trn, ref_trn):
+                hyp_file.write(hyp)
+                ref_file.write(ref)
+
