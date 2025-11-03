@@ -64,7 +64,7 @@ def _get_hf_dataset(
             # test clean or other
             data = data[mode]
         data = data.cast_column(
-            "audio", 
+            "audio",
             Audio(sampling_rate=24000) # mimi expects 24khz
         )
     elif name == "librispeech_dummy":
@@ -125,8 +125,11 @@ def _get_hf_dataset(
             seq.append(S2T)
             seq += text
             seq.append(EOS)
+            print(len(seq))
 
             input_ids.append(seq)
+
+        print(input_ids)
 
         return {"input_ids":input_ids}
 
