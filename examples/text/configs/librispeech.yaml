@@ -21,13 +21,14 @@ data:
   cache_dir: /path/to/cache/dir
   num_workers: 8
   debug: false
+  max_decode_ratio: 0.3
 
 training:
   batch_size: 128
   snapshot: 500
-  eval_freq: 500
+  eval_freq: 100
   perplexity_freq: 5000000
-  wer_freq: 500
+  wer_freq: 1000
   seed: 42
 
 eval:

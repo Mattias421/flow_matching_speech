@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 def _get_hf_dataset(
     name: str,
     mode: str,
-    max_decode_ratio: float,
     cache_dir: str = None,
     block_size: int = 1024,
     num_proc: int = 8,
@@ -90,14 +89,12 @@ def _get_hf_dataset(
         tokenizer = PreTrainedTokenizerFast(
             tokenizer_file="outputs/tokenizer-librispeech.json"
         )
-
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
 
     # added tokens
     EOS = 2048
     S2T = 2049
-    PAD = 2050
 
     # load the model + feature extractor (for pre-processing the audio)
     model = MimiModel.from_pretrained("kyutai/mimi").to('cuda')
@@ -147,8 +144,6 @@ def _get_hf_dataset(
 
     model = model.cpu()
 
-    tokenizer.add_tokens(["[PAD]"], special_tokens=True) # to save caching time
-
     keep_columns = ["input_ids", "id"]
 
     if name == "fineweb-edu" or "librispeech" in name:
@@ -165,12 +160,7 @@ def _get_hf_dataset(
         current_chunk = {'id':[], 'input_ids':[]}
 
         for utt_id, input_ids in zip(examples['id'], examples['input_ids']):
-
-            speech_len = input_ids.index(S2T) + 1
-            text_len = int(speech_len * max_decode_ratio)
-            max_len = speech_len + text_len
-
-            if len(current_chunk['input_ids']) + max_len > block_size:
+            if len(current_chunk['input_ids']) + len(input_ids) > block_size:
                 # block is ready to be added to result
                 current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
 
@@ -180,9 +170,6 @@ def _get_hf_dataset(
                 current_chunk = {'id':[], 'input_ids':[]}
 
             current_chunk['id'].append(utt_id)
-            input_ids = input_ids[:-1] # remove EOS token
-            input_ids += [PAD] * (max_len - len(input_ids) + 1)
-            input_ids += [EOS]
             current_chunk['input_ids'] += input_ids
 
         current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
@@ -222,7 +209,6 @@ def _get_dataset(
     num_proc: int,
     batch_size: int,
     ngpus: int,
-    max_decode_ratio: float,
 ) -> Dataset:
     assert batch_size % ngpus == 0, (
         f"{mode} batch size must be divisible by number of gpus."
@@ -231,7 +217,6 @@ def _get_dataset(
     dataset = _get_hf_dataset(
         name=name,
         mode=mode,
-        max_decode_ratio=max_decode_ratio,
         cache_dir=cache_dir,
         block_size=block_size,
         num_proc=num_proc,
@@ -251,7 +236,6 @@ def get_data_state(config: OmegaConf) -> DataState:
         num_proc=config.data.num_workers,
         batch_size=config.training.batch_size,
         ngpus=config.compute.ngpus,
-        max_decode_ratio=config.data.max_decode_ratio,
     )
     test = _get_dataset(
         name=config.data.valid,
@@ -261,7 +245,6 @@ def get_data_state(config: OmegaConf) -> DataState:
         num_proc=config.data.num_workers,
         batch_size=config.eval.batch_size,
         ngpus=config.compute.ngpus,
-        max_decode_ratio=config.data.max_decode_ratio,
     )
 
     return DataState(train=train, test=test)

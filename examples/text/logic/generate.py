@@ -124,6 +124,7 @@ def generate_transcription(
             time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
         )
 
+
         toggle = torch.zeros_like(sample)
         toggle[sample == 2049] = 1
         toggle[sample == 2048] = -1
@@ -132,6 +133,7 @@ def generate_transcription(
         text = ''.join(tokenizer.convert_ids_to_tokens(sample[text_ids==1]))
         text = text[5:] # remove first s2t token
         text += "[S2T]" # add it to end
+        text = text.replace("[PAD]",'') # remove padding
 
         utt_ids = chain(*batch["id"])
 
@@ -140,6 +142,7 @@ def generate_transcription(
         text = ''.join(tokenizer.convert_ids_to_tokens(x_1[text_ids==1]))
         text = text[5:] # remove first s2t token
         text += "[S2T]" # add it to end
+        text = text.replace("[PAD]",'') # remove padding
 
         utt_ids = chain(*batch["id"])
 
@@ -155,4 +158,5 @@ def generate_transcription(
             for hyp, ref in zip(hyp_trn, ref_trn):
                 hyp_file.write(hyp)
                 ref_file.write(ref)
+
 

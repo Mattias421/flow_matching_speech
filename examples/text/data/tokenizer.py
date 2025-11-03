@@ -59,7 +59,7 @@ def train_tokenizer(data, save_file):
     )
 
     tokenizer.train_from_iterator(text_iterator, trainer=trainer)
-    tokenizer.add_special_tokens(["[EOS]", "[S2T]"])
+    tokenizer.add_special_tokens(["[EOS]", "[S2T]", "[PAD]"])
     tokenizer.eos_token = "[EOS]"
     tokenizer.s2t_token = "[S2T]"
     tokenizer.save(save_file)

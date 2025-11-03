@@ -37,7 +37,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
 
     # TODO remove hardcoded vocab_size
-    vocab_size=2050
+    vocab_size=2051
     source_distribution = flow.get_source_distribution(
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
     )
@@ -77,10 +77,11 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     # Data
     if "librispeech" in cfg.data.train:
         tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer.add_tokens(["[PAD]"], special_tokens=True)
         tokenizer.eos_token = "[EOS]"
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    vocab_size = 2050 # TODO hardcoded vocab_size
+    vocab_size = 2051 # TODO hardcoded vocab_size
 
     if cfg.model.compile:
         state.compile_model()

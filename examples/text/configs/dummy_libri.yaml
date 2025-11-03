@@ -20,6 +20,7 @@ data:
   valid: librispeech_dummy
   cache_dir: /path/to/cache/dir
   num_workers: 8
+  max_decode_ratio: 0.3
   debug: false
 
 training:
