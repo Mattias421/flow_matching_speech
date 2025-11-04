@@ -21,7 +21,7 @@ data:
   cache_dir: /path/to/cache/dir
   num_workers: 8
   debug: false
-  max_decode_ratio: 0.3
+  max_decode_ratio: 1
 
 training:
   batch_size: 128
