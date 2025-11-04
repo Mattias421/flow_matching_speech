@@ -114,7 +114,7 @@ def generate_transcription(
         ids = batch['id']
         x_1 = batch['input_ids'].to(device)
 
-        x_0 = source_distribution.sample_like(x_1)
+        x_0 = source_distribution.sample_like(x_1, speech_noise_prob=0.0, text_noise_prob=1.0)
 
         sample = solver.sample(
             x_init=x_0,

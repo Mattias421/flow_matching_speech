@@ -82,6 +82,7 @@ def step(
     source_distribution: SourceDistribution,
     logger: TrainLogger,
     training: bool,
+    partial_noise_prob: float,
     optim_params: Optional[DictConfig] = None,
     time_epsilon: float = 0.0,
 ) -> Tensor:
@@ -96,7 +97,11 @@ def step(
 
     # Sample from path
     with torch.no_grad():
-        x_0 = source_distribution.sample_like(x_1)
+        if state.step % 2 == 0:
+            x_0 = source_distribution.sample_like(x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob)
+        else:
+            x_0 = source_distribution.sample_like(x_1, speech_noise_prob=partial_noise_prob, text_noise_prob=1.0)
+
         t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
         path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
 

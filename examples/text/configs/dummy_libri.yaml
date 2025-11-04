@@ -20,7 +20,7 @@ data:
   valid: librispeech_dummy
   cache_dir: /path/to/cache/dir
   num_workers: 8
-  max_decode_ratio: 0.3
+  max_decode_ratio: 1
   debug: false
 
 training:
@@ -59,6 +59,7 @@ flow:
   exponent: 1.
   scheduler_type: polynomial
   sampling_steps: 1024
+  partial_noise_prob: 0.1
 
 model:
   hidden_size: 768
