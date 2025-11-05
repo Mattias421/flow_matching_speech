@@ -14,6 +14,6 @@ cd $EXP/flow_matching_speech/examples/text
 ml binutils GCCcore GCC libsndfile cuDNN bzip2
 
 source .venv/bin/activate
-python run_train.py --config-name librispeech data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs
+python run_train.py --config-name librispeech data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs flow.loss_function=generalized_kl
 
 
