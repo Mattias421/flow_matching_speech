@@ -13,7 +13,7 @@ import torch.distributed as dist
 from data import data
 from flow_matching.loss import MixturePathGeneralizedKL
 
-from logic import evaluate, flow
+from logic import evaluate, flow, generate
 
 from torch.utils.data import DataLoader
 from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
@@ -25,11 +25,11 @@ def run_eval(
     seed: int,
     work_dir: str,
     batch_size: int,
-    perplexity_n_samples: int,
+    split: str,
     sampling_steps: int,
-    eval_perplexity: bool,
+    transcribe: bool,
     eval_elbo: bool,
-    elbo_data: str,
+    data_name: str,
     world_size: int,
     n_discretization: float = 1024,
 ) -> None:
@@ -43,14 +43,15 @@ def run_eval(
     cfg = checkpointing.load_cfg_from_path(work_dir=work_dirs.checkpoint)
 
     # Data
-    if cfg.data.train == "librispeech":
+    if "librispeech" in data_name:
         tokenizer = PreTrainedTokenizerFast(
             tokenizer_file="outputs/tokenizer-librispeech.json"
         )
+        tokenizer.add_tokens(["[PAD]"], special_tokens=True)
         tokenizer.eos_token = "[EOS]"
+        vocab_size = 2051
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    vocab_size = tokenizer.vocab_size
 
     # Flow matching
     path = flow.get_path(
@@ -77,52 +78,55 @@ def run_eval(
         model = torch.compile(model)
         torch.set_float32_matmul_precision("high")
 
-    # if eval_perplexity:
-    #     assert perplexity_n_samples // batch_size > 0
-    #
-    #     samples = []
-    #
-    #     for _ in range(perplexity_n_samples // batch_size):
-    #         samples.append(
-    #             generate.generate_samples(
-    #                 model=model,
-    #                 step=0,
-    #                 sample_dir=work_dirs.samples,
-    #                 vocab_size=vocab_size,
-    #                 tokenizer=tokenizer,
-    #                 rank=rank,
-    #                 device=device,
-    #                 path=path,
-    #                 source_distribution=source_distribution,
-    #                 sample_batch_size=batch_size,
-    #                 sequence_length=cfg.model.length,
-    #                 sampling_steps=sampling_steps,
-    #                 time_epsilon=time_epsilon,
-    #             )
-    #         )
-    #
-    #         dist.barrier()
-    #
-    #     samples = torch.cat(samples, dim=0)
-    #
-    #     perplexity = evaluate.compute_perplexity(
-    #         samples=samples,
-    #         perplexity_batch_size=cfg.eval.perplexity_batch_size,
-    #     )
-    #     dist.all_reduce(perplexity, dist.ReduceOp.AVG)
-    #
-    #     entropy = evaluate.compute_entropy(samples=samples)
-    #     dist.all_reduce(entropy, dist.ReduceOp.AVG)
-    #
-    #     if rank == 0:
-    #         print(f"Perplexity: {perplexity:.2f}, Entropy: {entropy:.2f}")
+    if transcribe:
+
+        sample_dir = work_dirs.samples / split 
+
+        data_state = data._get_dataset(
+            name=data_name,
+            mode=split,
+            cache_dir=cfg.data.cache_dir,
+            block_size=cfg.model.length,
+            num_proc=cfg.data.num_workers,
+            max_decode_ratio=cfg.data.max_decode_ratio,
+            batch_size=batch_size,
+            ngpus=world_size,
+        )
+
+        dataloader = DataLoader(
+            data_state.dataset,
+            batch_size=batch_size,
+            collate_fn=data.collate_fn,
+            sampler=data_state.sampler,
+            num_workers=cfg.data.num_workers,
+            pin_memory=True,
+            shuffle=(data_state.sampler is None),
+        )
+
+        generate.generate_transcription(
+            model=model,
+            step=sampling_steps, # results stored in iter_{sampling_steps}
+            sample_dir=sample_dir,
+            vocab_size=vocab_size,
+            dataloader=dataloader,
+            tokenizer=tokenizer,
+            rank=rank,
+            device=device,
+            path=path,
+            source_distribution=source_distribution,
+            sample_batch_size=cfg.eval.sample_batch_size,
+            sequence_length=cfg.model.length,
+            sampling_steps=sampling_steps,
+            time_epsilon=time_epsilon,
+        )
 
     if eval_elbo:
         data_state = data._get_dataset(
-            name=elbo_data,
-            mode="test",
+            name=data_name,
+            mode=split,
             cache_dir=cfg.data.cache_dir,
             block_size=cfg.model.length,
+            max_decode_ratio=cfg.data.max_decode_ratio,
             num_proc=cfg.data.num_workers,
             batch_size=batch_size,
             ngpus=world_size,
@@ -131,6 +135,7 @@ def run_eval(
         dataloader = DataLoader(
             data_state.dataset,
             batch_size=batch_size,
+            collate_fn=data.collate_fn,
             sampler=data_state.sampler,
             num_workers=cfg.data.num_workers,
             pin_memory=True,
@@ -177,10 +182,10 @@ def run_mp_eval(
     batch_size: int,
     sampling_steps: int,
     eval_elbo: bool,
-    eval_perplexity: bool,
-    elbo_data: str,
-    perplexity_n_samples: int,
+    data_name: str,
     port: int,
+    split: str,
+    transcribe: bool,
 ) -> None:
     try:
         setup(rank=rank, world_size=world_size, port=port)
@@ -191,10 +196,10 @@ def run_mp_eval(
             batch_size=batch_size,
             sampling_steps=sampling_steps,
             eval_elbo=eval_elbo,
-            eval_perplexity=eval_perplexity,
-            elbo_data=elbo_data,
+            data_name=data_name,
+            split=split,
             world_size=world_size,
-            perplexity_n_samples=perplexity_n_samples,
+            transcribe=transcribe,
         )
     finally:
         cleanup()
