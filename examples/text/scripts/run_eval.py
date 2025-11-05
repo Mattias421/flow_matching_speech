@@ -9,14 +9,22 @@
 import argparse
 
 import torch.multiprocessing as mp
+import socket
+from contextlib import closing
 
 from eval import run_mp_eval
 
+def find_free_port():
+    """Finds a free port on the host machine."""
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))  # Bind to port 0 to let the OS pick a free port
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]  # Return the port number assigned by the OS
+
 
 def main(args: argparse.Namespace):
-    port = 12346
+    port = find_free_port()
 
-    assert args.perplexity_n_samples % args.ngpus == 0
     assert args.batch_size % args.ngpus == 0
 
     if args.ngpus == 1:
@@ -26,11 +34,11 @@ def main(args: argparse.Namespace):
             seed=args.seed,
             work_dir=args.work_dir,
             batch_size=args.batch_size // args.ngpus,
+            split=args.split,
             sampling_steps=args.sampling_steps,
+            transcribe=args.transcribe,
             eval_elbo=args.eval_elbo,
-            eval_perplexity=args.eval_perplexity,
-            elbo_data=args.elbo_data,
-            perplexity_n_samples=args.perplexity_n_samples // args.ngpus,
+            data_name=args.data_name,
             port=port,
         )
     else:
@@ -61,18 +69,18 @@ if __name__ == "__main__":
     parser.add_argument("--work_dir", type=str, required=True)
 
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--ngpus", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--ngpus", type=int, default=1)
 
     parser.add_argument("--eval_elbo", action="store_true")
-    parser.add_argument("--eval_perplexity", action="store_false")
+    parser.add_argument("--transcribe", action="store_true")
 
     # Perplexity parameters
     parser.add_argument("--sampling_steps", type=int, default=1024)
-    parser.add_argument("--perplexity_n_samples", type=int, default=1024)
 
     # ELBO parameters
-    parser.add_argument("--elbo_data", type=str, default="librispeech")
+    parser.add_argument("--data_name", type=str, default="librispeech")
+    parser.add_argument("--split", type=str, default="test.clean")
 
     args = parser.parse_args()
     main(args)

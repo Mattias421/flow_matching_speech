@@ -79,6 +79,7 @@ def generate_samples(
 
     return sample
 
+@torch.no_grad()
 def generate_transcription(
     model: nn.Module,
     step: int,
@@ -92,7 +93,6 @@ def generate_transcription(
     sample_batch_size: int,
     sequence_length: int,
     sampling_steps: int,
-    n_gen_iter: int = 1,
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
@@ -111,7 +111,6 @@ def generate_transcription(
 
 
     for batch in tqdm(dataloader, total=len(dataloader)):
-        ids = batch['id']
         x_1 = batch['input_ids'].to(device)
 
         x_0 = source_distribution.sample_like(x_1, speech_noise_prob=0.0, text_noise_prob=1.0)
