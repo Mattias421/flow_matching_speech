@@ -169,6 +169,6 @@ def generate_transcription(
 
     wer = None
     if raw_references and raw_hypotheses:
-        wer = jiwer.compute_measures(raw_references, raw_hypotheses)['wer']
+        wer = jiwer.wer(raw_references, raw_hypotheses) 
 
     return wer
