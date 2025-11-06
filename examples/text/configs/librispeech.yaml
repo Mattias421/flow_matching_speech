@@ -28,7 +28,7 @@ training:
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 5000000
-  wer_freq: 5000
+  wer_freq: 10000
   seed: 42
 
 eval:
@@ -50,7 +50,7 @@ optim:
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false
-  n_iters: 40000
+  n_iters: 60000
   log_lr_every: ${logging.log_lr_every}
 
 flow:

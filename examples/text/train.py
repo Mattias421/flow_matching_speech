@@ -203,7 +203,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 sample_batch_size=cfg.eval.sample_batch_size,
                 sequence_length=cfg.model.length,
                 sampling_steps=cfg.flow.sampling_steps,
-                n_gen_iter=cfg.eval.n_gen_iter,
                 time_epsilon=time_epsilon,
             )
 
