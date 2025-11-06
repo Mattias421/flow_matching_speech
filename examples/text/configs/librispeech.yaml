@@ -58,7 +58,7 @@ flow:
   loss_function: cross_entropy  # [cross_entropy, generalized_kl]
   exponent: 1.
   scheduler_type: polynomial
-  sampling_steps: 1024
+  sampling_steps: 64
   partial_noise_prob: 0.1
 
 model:

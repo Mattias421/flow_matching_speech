@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 from itertools import chain
 
+import jiwer
 import torch
 from flow_matching.path import ProbPath
 from flow_matching.solver import MixtureDiscreteEulerSolver
@@ -108,6 +109,8 @@ def generate_transcription(
 
     hyp_trn = []
     ref_trn = []
+    raw_hypotheses = []
+    raw_references = []
 
 
     for batch in tqdm(dataloader, total=len(dataloader)):
@@ -128,11 +131,14 @@ def generate_transcription(
         toggle[sample == 2049] = 1
         toggle[sample == 2048] = -1
         text_ids = torch.cumsum(toggle, dim=1)
-    
+
         text = ''.join(tokenizer.convert_ids_to_tokens(sample[text_ids==1]))
         text = text[5:] # remove first s2t token
         text += "[S2T]" # add it to end
         text = text.replace("[PAD]",'') # remove padding
+
+        clean_hyp = text.replace("[S2T]", "").strip()
+        raw_hypotheses.append(clean_hyp)
 
         utt_ids = chain(*batch["id"])
 
@@ -142,6 +148,9 @@ def generate_transcription(
         text = text[5:] # remove first s2t token
         text += "[S2T]" # add it to end
         text = text.replace("[PAD]",'') # remove padding
+
+        clean_ref = text.replace("[S2T]", "").strip()
+        raw_references.append(clean_ref)
 
         utt_ids = chain(*batch["id"])
 
@@ -158,4 +167,8 @@ def generate_transcription(
                 hyp_file.write(hyp)
                 ref_file.write(ref)
 
+    wer = None
+    if raw_references and raw_hypotheses:
+        wer = jiwer.compute_measures(raw_references, raw_hypotheses)['wer']
 
+    return wer

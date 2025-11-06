@@ -165,7 +165,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             logger.info("Generating text...", step=state.step)
 
-            samples = generate.generate_transcription(
+            wer = generate.generate_transcription(
                 model=state.model,
                 step=state.step,
                 sample_dir=work_dirs.samples,
@@ -179,8 +179,11 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 sample_batch_size=cfg.eval.sample_batch_size,
                 sequence_length=cfg.model.length,
                 sampling_steps=cfg.flow.sampling_steps,
-                n_gen_iter=cfg.eval.n_gen_iter,
                 time_epsilon=time_epsilon,
+            )
+
+            logger.log_metric(
+                value=wer, name="WER", stage="Evaluation", step=state.step
             )
 
         # Generation
