@@ -49,7 +49,7 @@ def main(cfg: DictConfig):
     port = find_free_port()
 
     if cfg.compute.ngpus == 1:
-        run_mp_training(rank=0, world_size=1, cfg=cfg, port=port)
+        wer = run_mp_training(rank=0, world_size=1, cfg=cfg, port=port)
     else:
         mp.set_start_method("forkserver")
         mp.spawn(

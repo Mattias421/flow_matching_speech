@@ -1,8 +1,7 @@
 defaults:
   - _self_
   - override hydra/launcher: submitit_slurm
-  - override hydra/sweeper: optuna
-  - override hydra/sweeper/sampler: tpe
+  - override hydra/sweeper: ax
 
 compute:
   ngpus: 1
@@ -75,6 +74,54 @@ model:
 hydra_dir: /path/to/hydra/dir
 
 hydra:
+  sweeper:
+    _target_: hydra_plugins.hydra_ax_plugin.ax_sweeper.AxSweeper
+    ax_config:
+      # Total number of trials to run
+      max_trials: 24
+
+      # --- CRITICAL ---
+      # This is the key to a quasi-random search.
+      # By default, Ax uses an adaptive strategy (like TPE).
+      # We force it to use 'SOBOL' (a quasi-random sequence),
+      # which generates all 24 trials at the start, perfect for parallel execution.
+      generation_strategy:
+        name: SOBOL
+      
+      experiment:
+        # We are minimizing a loss function
+        minimize: true
+
+      # This defines the search space for your 5 parameters
+      params:
+        optim.lr:
+          type: range
+          bounds: [0.00001, 0.002]
+          value_type: float
+          log_scale: true
+        
+        optim.warmup:
+          type: range
+          bounds: [4000, 10000]
+          value_type: int
+
+        optim.weight_decay:
+          type: range
+          bounds: [0.00001, 0.1]
+          value_type: float
+          log_scale: true
+
+        model.dropout:
+          type: range
+          bounds: [0.00001, 0.2]
+          value_type: float
+          log_scale: true
+
+        flow.partial_noise_prob:
+          type: range
+          bounds: [0.00001, 0.1]
+          value_type: float
+          log_scale: true
   run:
     dir: ${hydra_dir}/${now:%Y.%m.%d}/${now:%H%M%S}
   sweep:
@@ -93,23 +140,5 @@ hydra:
     srun_args:
         - --export=ALL
     setup:
-        - export WANDB_TAGS="soup_bowl"
         - ml binutils GCCcore GCC libsndfile cuDNN bzip2
         - source .venv/bin/activate
-  sweeper:
-    sampler:
-      seed: 123
-    direction: minimize
-    study_name: soup_bowl
-    # storage: null
-    n_trials: 36
-    n_jobs: 12
-    # max_failure_rate: 0.5
-    params:
-        optim.lr: tag(log, interval(0.0004, 0.002))
-        optim.warmup: choice(2000,2500,3000,3500,4000)
-        optim.weight_decay: tag(log, interval(0.0004, 0.006))
-        flow.partial_noise_prob: choice(0,0.01,0.05,0.1)
-        model.dropout: range(0.05,0.3,step=0.05)
-
-

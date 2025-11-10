@@ -95,10 +95,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     # Elbo may have singularity at 1
     time_epsilon = 1e-3 if isinstance(loss_fn, MixturePathGeneralizedKL) else 0.0
 
-    num_train_steps = cfg.optim.n_iters
+    num_train_steps = cfg.optim.n_iters + cfg.optim.warmup
     logger.info(f"Starting training loop at step {state.step}.")
 
     train_loss_values = []
+
+    wer = None
 
     while state.step <= num_train_steps:
         loss = training.step(
@@ -246,6 +248,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         state.save_checkpoint(ckpt_dir=work_dirs.checkpoint, rank=rank)
 
     logger.finish()
+    return wer
 
 
 def setup(rank: int, world_size: int, port: int) -> None:
@@ -265,6 +268,8 @@ def cleanup() -> None:
 def run_mp_training(rank: int, world_size: int, cfg: OmegaConf, port: int) -> None:
     try:
         setup(rank=rank, world_size=world_size, port=port)
-        run_train(rank=rank, cfg=cfg)
+        wer = run_train(rank=rank, cfg=cfg)
+        if rank == 0:
+            return wer
     finally:
         cleanup()

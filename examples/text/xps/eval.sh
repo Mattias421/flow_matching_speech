@@ -25,7 +25,7 @@ $eval_cmd 8
 $eval_cmd 64
 $eval_cmd 256
 $eval_cmd 512
-$eval_cmd 1024
+# $eval_cmd 1024
 
 eval_cmd="python scripts/run_eval.py --work_dir $work_dir --data_name librispeech --transcribe --split test.other --sampling_steps"
 
@@ -34,7 +34,7 @@ $eval_cmd 8
 $eval_cmd 64
 $eval_cmd 256
 $eval_cmd 512
-$eval_cmd 1024
+# $eval_cmd 1024
 
-python scripts/run_eval.py --work_dir $work_dir --data_name librispeech --split test.other --eval_elbo
-python scripts/run_eval.py --work_dir $work_dir --data_name librispeech --split test.clean --eval_elbo
+# python scripts/run_eval.py --work_dir $work_dir --data_name librispeech --split test.other --eval_elbo
+# python scripts/run_eval.py --work_dir $work_dir --data_name librispeech --split test.clean --eval_elbo
