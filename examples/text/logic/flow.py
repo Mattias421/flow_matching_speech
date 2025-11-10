@@ -69,7 +69,7 @@ class ASRSourceDistribution(SourceDistribution):
         print("WARNING: ASRSourceDistribution isn't really supposed to be sampled without x_1")
         return torch.randint(size=tensor_size, high=self.vocab_size, device=device)
 
-    def sample_like(self, x_1: Tensor, speech_noise_prob: float, text_noise_prob: float) -> Tensor:
+    def sample_like(self, x_1: Tensor, speech_noise_prob: float, text_noise_prob: float, return_noise_mask: bool = False) -> Tensor:
         # preserve speech tokens
         toggle = torch.zeros_like(x_1)
         toggle[x_1 == self.s2t_token] = 1
@@ -89,6 +89,9 @@ class ASRSourceDistribution(SourceDistribution):
 
         uniform_noise = torch.randint_like(x_1, high=self.vocab_size)
         x_0 = x_1 * ~noise_mask + uniform_noise * noise_mask
+
+        if return_noise_mask:
+            return x_0, noise_mask
 
         return x_0
 

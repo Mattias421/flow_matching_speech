@@ -85,7 +85,6 @@ def step(
     partial_noise_prob: float,
     optim_params: Optional[DictConfig] = None,
     time_epsilon: float = 0.0,
-    unsupervised: bool = False,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -97,22 +96,6 @@ def step(
     x_1 = next(iterator)["input_ids"].to(device)
 
     # Sample from path
-    if unsupervised:
-        with torch.no_grad():
-            if state.step % 2 == 0:
-                # predict speech
-                x_0_speech, noise_mask = source_distribution.sample_like(x_1, speech_noise_prob=0, text_noise_prob=1.0, return_noise_mask=True)
-                logits = state.model(x_t=x_0_speech, time=torch.zeros(x_1.shape[0], device=x_1.device))
-                x_1_text = logits.argmax(dim=-1)
-                x_1 = x_1 * ~noise_mask + x_1_text * noise_mask
-
-            else:
-                # predict text
-                x_0_text, noise_mask = source_distribution.sample_like(x_1, speech_noise_prob=1, text_noise_prob=0.0, return_noise_mask=True)
-                logits = state.model(x_t=x_0_text, time=torch.zeros(x_1.shape[0], device=x_1.device))
-                x_1_speech = logits.argmax(dim=-1)
-                x_1 = x_1 * ~noise_mask + x_1_speech * noise_mask
-
     with torch.no_grad():
         if state.step % 2 == 0:
             x_0 = source_distribution.sample_like(x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob)

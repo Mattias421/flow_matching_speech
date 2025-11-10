@@ -32,6 +32,7 @@ training:
   perplexity_freq: 5000000
   wer_freq: 1000
   seed: 42
+  unsupervised: false
 
 eval:
   batch_size: 128

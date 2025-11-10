@@ -116,6 +116,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             training=True,
             time_epsilon=time_epsilon,
             partial_noise_prob=cfg.flow.partial_noise_prob,
+            unsupervised=cfg.training.unsupervised,
         )
 
         train_loss_values.append(loss)
@@ -154,6 +155,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 training=False,
                 time_epsilon=time_epsilon,
                 partial_noise_prob=cfg.flow.partial_noise_prob,
+                unsupervised=cfg.training.unsupervised,
             )
 
             dist.all_reduce(eval_loss, dist.ReduceOp.AVG)
