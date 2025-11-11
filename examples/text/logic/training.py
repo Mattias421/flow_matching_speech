@@ -98,6 +98,7 @@ def step(
 
     # Sample from path
     if unsupervised:
+        # TODO redo unsupervised and work on semi too
         with torch.no_grad():
             if state.step % 2 == 0:
                 # predict speech
@@ -128,12 +129,16 @@ def step(
     with ctx:
         logits = state.model(x_t=path_sample.x_t, time=path_sample.t)
 
+        # TODO add unpad loss, speech loss, text loss, and unpad for both of those
+
         if isinstance(loss_fn, nn.CrossEntropyLoss):
-            loss = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)).mean()
+            loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
+            loss = loss_full.mean()
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
-            loss = loss_fn(
+            loss_full = loss_fn(
                 logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
-            ).mean()
+            )
+            loss = loss_full.mean()
         else:
             raise ValueError("Invalid loss function")
 
@@ -147,4 +152,13 @@ def step(
             logger=logger,
         )
 
-    return loss.detach()
+    loss_full = loss_full.detach()
+    loss_speech = loss_full[:, :(loss_full.shape[-1] // 2)].mean()
+    loss_text = loss_full[:, (loss_full.shape[-1] // 2 + 1):].mean()
+
+    loss_speech_no_pad = loss_full[:, :(loss_full.shape[-1] // 2)][x_1[:, :(loss_full.shape[-1] // 2)] != 2050].mean()
+    loss_text_no_pad = loss_full[:, (loss_full.shape[-1] // 2 + 1):][x_1[:, (loss_full.shape[-1] // 2 + 1):] != 2050].mean()
+
+    loss_no_pad = loss_full[x_1 != 2050].mean()
+
+    return loss.detach(), loss_no_pad, loss_speech, loss_text, loss_speech_no_pad, loss_text_no_pad

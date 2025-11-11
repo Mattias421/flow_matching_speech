@@ -103,7 +103,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     cer = None
 
     while state.step <= num_train_steps:
-        loss = training.step(
+        loss, loss_no_pad, loss_speech, loss_text, loss_speech_no_pad, loss_text_no_pad = training.step(
             loss_fn=loss_fn,
             path=path,
             state=state,
@@ -119,17 +119,19 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             unsupervised=cfg.training.unsupervised,
         )
 
-        train_loss_values.append(loss)
+        train_loss_values.append([loss, loss_no_pad, loss_speech, loss_text, loss_speech_no_pad, loss_text_no_pad])
 
         # Train logging
         if state.step % cfg.logging.log_freq == 0:
             agg_train_loss_values = torch.tensor(
                 train_loss_values, device=device
-            ).mean()
+            ).mean(dim=0)
             dist.all_reduce(agg_train_loss_values, dist.ReduceOp.AVG)
-            logger.log_metric(
-                value=agg_train_loss_values, name="Loss", stage="Train", step=state.step
-            )
+
+            for loss_name, loss_value in zip(["loss", "loss_no_pad", "loss_speech", "loss_text", "loss_speech_no_pad", "loss_text_no_pad"], agg_train_loss_values):
+                logger.log_metric(
+                    value=loss_value, name=loss_name, stage="Train", step=state.step
+                )
 
             train_loss_values = []
 
@@ -144,6 +146,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             logger.info("Evaluating loss...", step=state.step)
 
             eval_loss = training.step(
+            eval_loss, eval_loss_no_pad, eval_loss_speech, eval_loss_text, eval_loss_speech_no_pad, eval_loss_text_no_pad = training.step(
                 state=state,
                 loss_fn=loss_fn,
                 path=path,
