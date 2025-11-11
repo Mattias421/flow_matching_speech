@@ -50,6 +50,7 @@ def main(cfg: DictConfig):
 
     if cfg.compute.ngpus == 1:
         cer = run_mp_training(rank=0, world_size=1, cfg=cfg, port=port)
+        print(f"run_mp_training returns {cer}")
         return cer
     else:
         mp.set_start_method("forkserver")

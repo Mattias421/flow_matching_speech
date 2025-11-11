@@ -98,6 +98,7 @@ def generate_transcription(
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
 ) -> Tensor:
+
     wrapped_probability_denoiser = WrappedModel(model=model)
 
     add_token = 1 if source_distribution.masked else 0

@@ -125,14 +125,16 @@ def _get_hf_dataset(
         for text, audio, audio_len in zip(text_tokens['input_ids'], audio_tokens, lens):
             seq = []
             seq += audio[:int(audio_len*len(audio))]
+            seq.append(EOS)
+            assert (block_size // 2) > len(seq), "Audio sequence length greater than half block size, consider increasing block_size"
+            seq += [PAD] * ((block_size // 2) - len(seq)) 
             seq.append(S2T)
             seq += text
             seq.append(EOS)
-            print(len(seq))
+            assert (block_size) > len(seq), "Sequence length greater than block size, consider increasing block_size"
+            seq += [PAD] * (block_size - len(seq))
 
             input_ids.append(seq)
-
-        print(input_ids)
 
         return {"input_ids":input_ids}
 
@@ -159,50 +161,9 @@ def _get_hf_dataset(
     else:
         tokenized_dataset = tokenized_dataset.remove_columns("text")
 
-    def group_texts(examples: Dict):
+    tokenized_dataset = tokenized_dataset.with_format("torch")
 
-        result = {'id':[], 'input_ids':[]}
-        current_chunk = {'id':[], 'input_ids':[]}
-
-        for utt_id, input_ids in zip(examples['id'], examples['input_ids']):
-
-            speech_len = input_ids.index(S2T)
-            text_len = int(speech_len * max_decode_ratio)
-            max_len = speech_len + text_len + 2
-
-            if len(current_chunk['input_ids']) + max_len > block_size:
-                # block is ready to be added to result
-                current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
-
-                assert len(current_chunk['input_ids']) == block_size, f"current chunk len is {len(current_chunk['input_ids'])}"
-                result['input_ids'].append(current_chunk['input_ids'])
-                result['id'].append(current_chunk['id'])
-
-                current_chunk = {'id':[], 'input_ids':[]}
-
-            current_chunk['id'].append(utt_id)
-            input_ids = input_ids[:-1] # remove EOS token
-            input_ids += [PAD] * ((speech_len + 1 + text_len) - len(input_ids))
-            input_ids += [EOS]
-
-            assert len(input_ids) <= max_len, f"input_ids are {len(input_ids)} which is larger than {max_len}, consider increasing max_decode_ratio larger than {max_decode_ratio}"
-
-            current_chunk['input_ids'] += input_ids
-            print(len(current_chunk['input_ids']))
-
-        current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
-        result['input_ids'].append(current_chunk['input_ids'])
-        result['id'].append(current_chunk['id'])
-
-        return result
-
-    logger.info("Chunking data")
-    chunked_dataset = tokenized_dataset.map(
-        group_texts, batched=True, num_proc=num_proc, load_from_cache_file=True
-    )
-    chunked_dataset = chunked_dataset.with_format("torch")
-
-    return chunked_dataset
+    return tokenized_dataset
 
 
 @dataclass
