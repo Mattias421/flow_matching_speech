@@ -100,7 +100,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     train_loss_values = []
 
-    wer = None
+    cer = None
 
     while state.step <= num_train_steps:
         loss = training.step(
@@ -164,12 +164,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             )
 
         # Generation
-        if state.step % cfg.training.wer_freq == 0:
+        if state.step % cfg.training.cer_freq == 0:
             state.eval()
 
             logger.info("Generating text...", step=state.step)
 
-            wer = generate.generate_transcription(
+            cer = generate.generate_transcription(
                 model=state.model,
                 step=state.step,
                 sample_dir=work_dirs.samples,
@@ -187,7 +187,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             )
 
             logger.log_metric(
-                value=wer, name="WER", stage="Evaluation", step=state.step
+                value=cer, name="CER", stage="Evaluation", step=state.step
             )
 
         # Generation
@@ -249,8 +249,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
         state.save_checkpoint(ckpt_dir=work_dirs.checkpoint, rank=rank)
 
+        logger.info(f"Final CER: {cer}")
+
     logger.finish()
-    return wer
+    return cer
 
 
 def setup(rank: int, world_size: int, port: int) -> None:
@@ -270,8 +272,8 @@ def cleanup() -> None:
 def run_mp_training(rank: int, world_size: int, cfg: OmegaConf, port: int) -> None:
     try:
         setup(rank=rank, world_size=world_size, port=port)
-        wer = run_train(rank=rank, cfg=cfg)
+        cer = run_train(rank=rank, cfg=cfg)
         if rank == 0:
-            return wer
+            return cer
     finally:
         cleanup()

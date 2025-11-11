@@ -11,7 +11,7 @@ cd $EXP/flow_matching_speech/examples/text
 ml GCC GCCcore binutils libsndfile
 source .venv/bin/activate
 export SUBMITIT_EXECUTOR=slurm
-python run_train.py --config-name librispeech data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs flow.loss_function=generalized_kl -m
+python run_train.py --config-name librispeech data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs flow.loss_function=generalized_kl training.unsupervised=True -m
 
 
 echo "multirun complete"

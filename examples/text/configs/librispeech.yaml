@@ -94,14 +94,14 @@ hydra:
     srun_args:
         - --export=ALL
     setup:
-        - export WANDB_TAGS="soup_bowl"
+        - export WANDB_TAGS="unsoup_bowl"
         - ml binutils GCCcore GCC libsndfile cuDNN bzip2
         - source .venv/bin/activate
   sweeper:
     sampler:
       seed: 123
     direction: minimize
-    study_name: soup_bowl
+    study_name: unsoup_bowl
     # storage: null
     n_trials: 36
     n_jobs: 12

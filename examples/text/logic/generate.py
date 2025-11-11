@@ -167,8 +167,8 @@ def generate_transcription(
                 hyp_file.write(hyp)
                 ref_file.write(ref)
 
-    wer = None
+    cer = None
     if raw_references and raw_hypotheses:
-        wer = jiwer.wer(raw_references, raw_hypotheses) 
+        cer = jiwer.cer(raw_references, raw_hypotheses)
 
-    return wer
+    return cer
