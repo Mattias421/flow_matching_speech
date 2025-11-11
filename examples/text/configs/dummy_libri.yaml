@@ -28,7 +28,7 @@ training:
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  wer_freq: 500
+  cer_freq: 500
   seed: 42
   unsupervised: false
 
