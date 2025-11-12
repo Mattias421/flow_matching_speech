@@ -86,6 +86,7 @@ def step(
     optim_params: Optional[DictConfig] = None,
     time_epsilon: float = 0.0,
     unsupervised: bool = False,
+    partial_loss_weight: float = 1,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -133,14 +134,25 @@ def step(
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
             loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
-            loss = loss_full.mean()
+
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             loss_full = loss_fn(
                 logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
             )
-            loss = loss_full.mean()
         else:
             raise ValueError("Invalid loss function")
+
+        loss_full = loss_full.reshape(x_1.shape)
+        block_size = loss_full.shape[-1]
+
+        loss_weight = torch.ones(block_size, device=device)
+        if state.step % 2 == 0:
+            loss_weight[(block_size // 2 + 1):] = partial_loss_weight
+        else:
+            loss_weight[:(block_size // 2)] = partial_loss_weight
+
+        loss_weighted = loss_full * loss_weight[None, :]
+        loss = loss_weighted.mean()
 
     # Optimization step (only if training=true)
     if training:
@@ -152,13 +164,13 @@ def step(
             logger=logger,
         )
 
-    loss_full = loss_full.detach()
-    loss_speech = loss_full[:, :(loss_full.shape[-1] // 2)].mean()
-    loss_text = loss_full[:, (loss_full.shape[-1] // 2 + 1):].mean()
+    with torch.no_grad():
+        loss_speech = loss_full[:, :(loss_full.shape[-1] // 2)].mean()
+        loss_text = loss_full[:, (loss_full.shape[-1] // 2 + 1):].mean()
 
-    loss_speech_no_pad = loss_full[:, :(loss_full.shape[-1] // 2)][x_1[:, :(loss_full.shape[-1] // 2)] != 2050].mean()
-    loss_text_no_pad = loss_full[:, (loss_full.shape[-1] // 2 + 1):][x_1[:, (loss_full.shape[-1] // 2 + 1):] != 2050].mean()
+        loss_speech_no_pad = loss_full[:, :(loss_full.shape[-1] // 2)][x_1[:, :(loss_full.shape[-1] // 2)] != 2050].mean()
+        loss_text_no_pad = loss_full[:, (loss_full.shape[-1] // 2 + 1):][x_1[:, (loss_full.shape[-1] // 2 + 1):] != 2050].mean()
 
-    loss_no_pad = loss_full[x_1 != 2050].mean()
+        loss_no_pad = loss_full[x_1 != 2050].mean()
 
     return loss.detach(), loss_no_pad, loss_speech, loss_text, loss_speech_no_pad, loss_text_no_pad

@@ -28,7 +28,6 @@ class WrappedModel(ModelWrapper):
     def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
         return self.model(x_t=x, time=t).float()
 
-
 @torch.no_grad()
 def compute_perplexity(
     sample_dir, step, kenlm_path, dataloader, tokenizer, o: int = 2, rank=0

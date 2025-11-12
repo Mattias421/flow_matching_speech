@@ -33,6 +33,7 @@ training:
   cer_freq: 1000
   seed: 42
   unsupervised: false
+  partial_loss_weight: 1
 
 eval:
   batch_size: 128

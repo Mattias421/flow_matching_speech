@@ -117,6 +117,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             time_epsilon=time_epsilon,
             partial_noise_prob=cfg.flow.partial_noise_prob,
             unsupervised=cfg.training.unsupervised,
+            partial_loss_weight=cfg.training.partial_loss_weight,
         )
 
         train_loss_values.append([loss, loss_no_pad, loss_speech, loss_text, loss_speech_no_pad, loss_text_no_pad])
@@ -145,7 +146,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         if state.step % cfg.training.eval_freq == 0:
             logger.info("Evaluating loss...", step=state.step)
 
-            eval_loss = training.step(
             eval_loss, eval_loss_no_pad, eval_loss_speech, eval_loss_text, eval_loss_speech_no_pad, eval_loss_text_no_pad = training.step(
                 state=state,
                 loss_fn=loss_fn,
@@ -159,6 +159,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 time_epsilon=time_epsilon,
                 partial_noise_prob=cfg.flow.partial_noise_prob,
                 unsupervised=cfg.training.unsupervised,
+                partial_loss_weight=cfg.training.partial_loss_weight,
             )
 
             dist.all_reduce(eval_loss, dist.ReduceOp.AVG)

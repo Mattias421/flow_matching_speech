@@ -26,60 +26,6 @@ class WrappedModel(ModelWrapper):
         # Note: logit's precision is important.
         return torch.softmax(self.model(x_t=x, time=t).float(), -1)
 
-
-def generate_samples(
-    model: nn.Module,
-    step: int,
-    vocab_size: int,
-    tokenizer: PreTrainedTokenizer,
-    rank: int,
-    device: torch.device,
-    path: ProbPath,
-    source_distribution: SourceDistribution,
-    sample_batch_size: int,
-    sequence_length: int,
-    sampling_steps: int,
-    n_gen_iter: int = 1,
-    time_epsilon: float = 0.0,
-    sample_dir: Optional[Path] = None,
-    dtype_categorical: torch.dtype = torch.float64,
-) -> Tensor:
-    wrapped_probability_denoiser = WrappedModel(model=model)
-
-    add_token = 1 if source_distribution.masked else 0
-    solver = MixtureDiscreteEulerSolver(
-        model=wrapped_probability_denoiser,
-        path=path,
-        vocabulary_size=vocab_size + add_token,
-    )
-
-    x_init = source_distribution.sample(
-        tensor_size=(sample_batch_size, sequence_length), device=device
-    )
-
-    sentences = []
-
-    for i in range(n_gen_iter):
-        sample = solver.sample(
-            x_init=x_init,
-            step_size=1 / sampling_steps,
-            verbose=True,
-            dtype_categorical=dtype_categorical,
-            time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
-        )
-
-        sentences.extend(tokenizer.batch_decode(sample))
-
-    if sample_dir is not None:
-        file_name = sample_dir / f"iter_{step}" / f"sample_{rank}.txt"
-        file_name.parents[0].mkdir(exist_ok=True, parents=True)
-
-        with open(file_name, "w") as file:
-            for sentence in sentences:
-                file.write(f"{sentence}\n")
-
-    return sample
-
 @torch.no_grad()
 def generate_transcription(
     model: nn.Module,
@@ -99,14 +45,7 @@ def generate_transcription(
     dtype_categorical: torch.dtype = torch.float64,
 ) -> Tensor:
 
-    wrapped_probability_denoiser = WrappedModel(model=model)
-
     add_token = 1 if source_distribution.masked else 0
-    solver = MixtureDiscreteEulerSolver(
-        model=wrapped_probability_denoiser,
-        path=path,
-        vocabulary_size=vocab_size + add_token,
-    )
 
     hyp_trn = []
     ref_trn = []
@@ -116,8 +55,23 @@ def generate_transcription(
 
     for batch in tqdm(dataloader, total=len(dataloader)):
         x_1 = batch['input_ids'].to(device)
+        block_size = x_1.shape[-1]
 
         x_0 = source_distribution.sample_like(x_1, speech_noise_prob=0.0, text_noise_prob=1.0)
+
+        class WrappedASRModel(ModelWrapper):
+            def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
+                # Note: logit's precision is important.
+                x[:, :(block_size // 2)] = x_0[:, :(block_size // 2)] # force speech to be constant
+                return torch.softmax(self.model(x_t=x, time=t).float(), -1)
+
+        wrapped_probability_denoiser = WrappedASRModel(model)
+
+        solver = MixtureDiscreteEulerSolver(
+            model=wrapped_probability_denoiser,
+            path=path,
+            vocabulary_size=vocab_size + add_token,
+        )
 
         sample = solver.sample(
             x_init=x_0,
@@ -128,34 +82,23 @@ def generate_transcription(
         )
 
 
-        toggle = torch.zeros_like(sample)
-        toggle[sample == 2049] = 1
-        toggle[sample == 2048] = -1
-        text_ids = torch.cumsum(toggle, dim=1)
+        text_sample = sample[:, (block_size // 2 + 1):]
 
-        text = ''.join(tokenizer.convert_ids_to_tokens(sample[text_ids==1]))
-        text = text[5:] # remove first s2t token
-        text += "[S2T]" # add it to end
-        text = text.replace("[PAD]",'') # remove padding
+        for text_ids, utt_id in zip(text_sample, batch['id']):
+            text = ''.join(tokenizer.convert_ids_to_tokens(text_ids))
+            text = text.replace("[PAD]",'') # remove padding
+            clean_hyp = text.replace("[EOS]", "").strip()
+            raw_hypotheses.append(clean_hyp)
+            trn_hyp = clean_hyp + f" ({utt_id})\n"
+            hyp_trn.append(trn_hyp)
 
-        clean_hyp = text.replace("[S2T]", "").strip()
-        raw_hypotheses.append(clean_hyp)
+            text = ''.join(tokenizer.convert_ids_to_tokens(text_ids))
+            text = text.replace("[PAD]",'') # remove padding
+            clean_ref = text.replace("[EOS]", "").strip()
+            raw_references.append(clean_ref)
+            trn_ref = clean_ref + f" ({utt_id})\n"
+            ref_trn.append(trn_ref)
 
-        utt_ids = chain(*batch["id"])
-
-        hyp_trn.append(re.sub(r"\[S2T\]", lambda m : f" ({next(utt_ids)})\n", text))
-
-        text = ''.join(tokenizer.convert_ids_to_tokens(x_1[text_ids==1]))
-        text = text[5:] # remove first s2t token
-        text += "[S2T]" # add it to end
-        text = text.replace("[PAD]",'') # remove padding
-
-        clean_ref = text.replace("[S2T]", "").strip()
-        raw_references.append(clean_ref)
-
-        utt_ids = chain(*batch["id"])
-
-        ref_trn.append(re.sub(r"\[S2T\]", lambda m : f" ({next(utt_ids)})\n", text))
 
     if sample_dir is not None:
         hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"

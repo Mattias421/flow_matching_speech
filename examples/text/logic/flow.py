@@ -71,13 +71,12 @@ class ASRSourceDistribution(SourceDistribution):
 
     def sample_like(self, x_1: Tensor, speech_noise_prob: float, text_noise_prob: float, return_noise_mask: bool = False) -> Tensor:
         block_size = x_1.shape[-1]
-        prob_noise = torch.rand(x_1.shape).to(x_1.device)
+        prob_noise = torch.rand(x_1.shape)
         noise_mask = ((torch.arange(block_size)[None,:] < (block_size // 2)) & (prob_noise < speech_noise_prob)) | ((torch.arange(block_size)[None,:] > (block_size // 2)) & (prob_noise < text_noise_prob))
+        noise_mask = noise_mask.to(x_1.device)
 
         uniform_noise = torch.randint_like(x_1, high=self.vocab_size)
         x_0 = x_1 * ~noise_mask + uniform_noise * noise_mask
-
-        breakpoint()
 
         if return_noise_mask:
             return x_0, noise_mask
@@ -109,10 +108,10 @@ def get_source_distribution(
 
 def get_loss_function(loss_function: str, path: Optional[ProbPath] = None) -> _Loss:
     if loss_function == "cross_entropy":
-        return torch.nn.CrossEntropyLoss()
+        return torch.nn.CrossEntropyLoss(reduction='none')
     elif loss_function == "generalized_kl":
         assert path is not None
 
-        return MixturePathGeneralizedKL(path=path)
+        return MixturePathGeneralizedKL(path=path, reduction='none')
     else:
         raise ValueError(f"{loss_function} is not supported")
