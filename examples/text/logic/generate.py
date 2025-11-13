@@ -83,16 +83,17 @@ def generate_transcription(
 
 
         text_sample = sample[:, (block_size // 2 + 1):]
+        text_ref = x_1[:, (block_size // 2 + 1):]
 
-        for text_ids, utt_id in zip(text_sample, batch['id']):
-            text = ''.join(tokenizer.convert_ids_to_tokens(text_ids))
+        for hyp_text_ids, ref_text_ids, utt_id in zip(text_sample, text_ref, batch['id']):
+            text = ''.join(tokenizer.convert_ids_to_tokens(hyp_text_ids))
             text = text.replace("[PAD]",'') # remove padding
             clean_hyp = text.replace("[EOS]", "").strip()
             raw_hypotheses.append(clean_hyp)
             trn_hyp = clean_hyp + f" ({utt_id})\n"
             hyp_trn.append(trn_hyp)
 
-            text = ''.join(tokenizer.convert_ids_to_tokens(text_ids))
+            text = ''.join(tokenizer.convert_ids_to_tokens(ref_text_ids))
             text = text.replace("[PAD]",'') # remove padding
             clean_ref = text.replace("[EOS]", "").strip()
             raw_references.append(clean_ref)
