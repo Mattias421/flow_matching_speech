@@ -1,8 +1,10 @@
 defaults:
   - _self_
+  - override hydra/sweeper/sampler: random
   - override hydra/launcher: submitit_slurm
   - override hydra/sweeper: optuna
-  - override hydra/sweeper/sampler: tpe
+
+study_name: default
 
 compute:
   ngpus: 1
@@ -54,12 +56,12 @@ optim:
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false
-  n_iters: 60000
+  n_iters: 80000
   log_lr_every: ${logging.log_lr_every}
 
 flow:
   source_distribution: asr  # [asr]
-  loss_function: cross_entropy  # [cross_entropy, generalized_kl]
+  loss_function: generalized_kl  # [cross_entropy, generalized_kl]
   exponent: 1.
   scheduler_type: polynomial
   sampling_steps: 64
@@ -95,14 +97,14 @@ hydra:
     srun_args:
         - --export=ALL
     setup:
-        - export WANDB_TAGS="unsoup_bowl"
+        - export WANDB_TAGS="${study_name}"
         - ml binutils GCCcore GCC libsndfile cuDNN bzip2
         - source .venv/bin/activate
   sweeper:
     sampler:
-      seed: 123
+      seed: ${training.seed}
     direction: minimize
-    study_name: unsoup_bowl
+    study_name: ${study_name}
     # storage: null
     n_trials: 36
     n_jobs: 12
