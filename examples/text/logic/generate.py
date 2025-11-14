@@ -4,10 +4,8 @@
 # This source code is licensed under the CC-by-NC license found in the
 # LICENSE file in the root directory of this source tree.
 
-import re
 from pathlib import Path
 from typing import Optional
-from itertools import chain
 
 import jiwer
 import torch
@@ -25,6 +23,7 @@ class WrappedModel(ModelWrapper):
     def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
         # Note: logit's precision is important.
         return torch.softmax(self.model(x_t=x, time=t).float(), -1)
+
 
 @torch.no_grad()
 def generate_transcription(
@@ -44,7 +43,6 @@ def generate_transcription(
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
 ) -> Tensor:
-
     add_token = 1 if source_distribution.masked else 0
 
     hyp_trn = []
@@ -52,17 +50,20 @@ def generate_transcription(
     raw_hypotheses = []
     raw_references = []
 
-
     for batch in tqdm(dataloader, total=len(dataloader)):
-        x_1 = batch['input_ids'].to(device)
+        x_1 = batch["input_ids"].to(device)
         block_size = x_1.shape[-1]
 
-        x_0 = source_distribution.sample_like(x_1, speech_noise_prob=0.0, text_noise_prob=1.0)
+        x_0 = source_distribution.sample_like(
+            x_1, speech_noise_prob=0.0, text_noise_prob=1.0
+        )
 
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
-                x[:, :(block_size // 2)] = x_0[:, :(block_size // 2)] # force speech to be constant
+                x[:, : (block_size // 2)] = x_0[
+                    :, : (block_size // 2)
+                ]  # force speech to be constant
                 return torch.softmax(self.model(x_t=x, time=t).float(), -1)
 
         wrapped_probability_denoiser = WrappedASRModel(model)
@@ -81,25 +82,25 @@ def generate_transcription(
             time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
         )
 
+        text_sample = sample[:, (block_size // 2 + 1) :]
+        text_ref = x_1[:, (block_size // 2 + 1) :]
 
-        text_sample = sample[:, (block_size // 2 + 1):]
-        text_ref = x_1[:, (block_size // 2 + 1):]
-
-        for hyp_text_ids, ref_text_ids, utt_id in zip(text_sample, text_ref, batch['id']):
-            text = ''.join(tokenizer.convert_ids_to_tokens(hyp_text_ids))
-            text = text.replace("[PAD]",'') # remove padding
+        for hyp_text_ids, ref_text_ids, utt_id in zip(
+            text_sample, text_ref, batch["id"]
+        ):
+            text = "".join(tokenizer.convert_ids_to_tokens(hyp_text_ids))
+            text = text.replace("[PAD]", "")  # remove padding
             clean_hyp = text.replace("[EOS]", "").strip()
             raw_hypotheses.append(clean_hyp)
             trn_hyp = clean_hyp + f" ({utt_id})\n"
             hyp_trn.append(trn_hyp)
 
-            text = ''.join(tokenizer.convert_ids_to_tokens(ref_text_ids))
-            text = text.replace("[PAD]",'') # remove padding
+            text = "".join(tokenizer.convert_ids_to_tokens(ref_text_ids))
+            text = text.replace("[PAD]", "")  # remove padding
             clean_ref = text.replace("[EOS]", "").strip()
             raw_references.append(clean_ref)
             trn_ref = clean_ref + f" ({utt_id})\n"
             ref_trn.append(trn_ref)
-
 
     if sample_dir is not None:
         hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"

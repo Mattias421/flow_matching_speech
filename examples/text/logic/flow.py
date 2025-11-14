@@ -54,6 +54,7 @@ class UniformSourceDistribution(SourceDistribution):
     def sample_like(self, tensor_like: Tensor) -> Tensor:
         return torch.randint_like(tensor_like, high=self.vocab_size)
 
+
 class ASRSourceDistribution(SourceDistribution):
     def __init__(self) -> None:
         # TODO hardcoded vocab
@@ -66,13 +67,27 @@ class ASRSourceDistribution(SourceDistribution):
         return False
 
     def sample(self, tensor_size: Tuple[int, ...], device: torch.device) -> Tensor:
-        print("WARNING: ASRSourceDistribution isn't really supposed to be sampled without x_1")
+        print(
+            "WARNING: ASRSourceDistribution isn't really supposed to be sampled without x_1"
+        )
         return torch.randint(size=tensor_size, high=self.vocab_size, device=device)
 
-    def sample_like(self, x_1: Tensor, speech_noise_prob: float, text_noise_prob: float, return_noise_mask: bool = False) -> Tensor:
+    def sample_like(
+        self,
+        x_1: Tensor,
+        speech_noise_prob: float,
+        text_noise_prob: float,
+        return_noise_mask: bool = False,
+    ) -> Tensor:
         block_size = x_1.shape[-1]
         prob_noise = torch.rand(x_1.shape)
-        noise_mask = ((torch.arange(block_size)[None,:] < (block_size // 2)) & (prob_noise < speech_noise_prob)) | ((torch.arange(block_size)[None,:] > (block_size // 2)) & (prob_noise < text_noise_prob))
+        noise_mask = (
+            (torch.arange(block_size)[None, :] < (block_size // 2))
+            & (prob_noise < speech_noise_prob)
+        ) | (
+            (torch.arange(block_size)[None, :] > (block_size // 2))
+            & (prob_noise < text_noise_prob)
+        )
         noise_mask = noise_mask.to(x_1.device)
 
         uniform_noise = torch.randint_like(x_1, high=self.vocab_size)
@@ -108,10 +123,10 @@ def get_source_distribution(
 
 def get_loss_function(loss_function: str, path: Optional[ProbPath] = None) -> _Loss:
     if loss_function == "cross_entropy":
-        return torch.nn.CrossEntropyLoss(reduction='none')
+        return torch.nn.CrossEntropyLoss(reduction="none")
     elif loss_function == "generalized_kl":
         assert path is not None
 
-        return MixturePathGeneralizedKL(path=path, reduction='none')
+        return MixturePathGeneralizedKL(path=path, reduction="none")
     else:
         raise ValueError(f"{loss_function} is not supported")

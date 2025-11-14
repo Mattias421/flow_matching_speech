@@ -65,10 +65,12 @@ def _get_hf_dataset(
             data = data[mode]
         data = data.cast_column(
             "audio",
-            Audio(sampling_rate=24000) # mimi expects 24khz
+            Audio(sampling_rate=24000),  # mimi expects 24khz
         )
     elif name == "librispeech_dummy":
-        data = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+        data = load_dataset(
+            "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
+        )
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
 
@@ -97,20 +99,26 @@ def _get_hf_dataset(
     S2T = 2049
 
     # load the model + feature extractor (for pre-processing the audio)
-    model = MimiModel.from_pretrained("kyutai/mimi").to('cuda')
+    model = MimiModel.from_pretrained("kyutai/mimi").to("cuda")
     feature_extractor = AutoFeatureExtractor.from_pretrained("kyutai/mimi")
 
     def preprocess_and_tokenize(example: Dict):
         text = example["text"]
         audio = example["audio"]
-        audio = [a['array'] for a in audio]
+        audio = [a["array"] for a in audio]
         lens = [a.shape[0] for a in audio]
         max_len = max(lens)
         lens = [l / max_len for l in lens]
 
-        inputs = feature_extractor(raw_audio=audio, sampling_rate=feature_extractor.sampling_rate, return_tensors="pt").to('cuda')
+        inputs = feature_extractor(
+            raw_audio=audio,
+            sampling_rate=feature_extractor.sampling_rate,
+            return_tensors="pt",
+        ).to("cuda")
 
-        audio_tokens = model.encode(inputs["input_values"]).audio_codes[:,0,:].cpu().tolist() # 0th codebook is semantic
+        audio_tokens = (
+            model.encode(inputs["input_values"]).audio_codes[:, 0, :].cpu().tolist()
+        )  # 0th codebook is semantic
 
         if detokenizer is not None:
             text = _apply_detokenizer(detokenizer)(text)
@@ -119,9 +127,9 @@ def _get_hf_dataset(
 
         input_ids = []
 
-        for text, audio, audio_len in zip(text_tokens['input_ids'], audio_tokens, lens):
+        for text, audio, audio_len in zip(text_tokens["input_ids"], audio_tokens, lens):
             seq = []
-            seq += audio[:int(audio_len*len(audio))]
+            seq += audio[: int(audio_len * len(audio))]
             seq.append(S2T)
             seq += text
             seq.append(EOS)
@@ -131,7 +139,7 @@ def _get_hf_dataset(
 
         print(input_ids)
 
-        return {"input_ids":input_ids}
+        return {"input_ids": input_ids}
 
     logger.info("Tokenizing data")
     tokenized_dataset = data.map(
@@ -155,26 +163,29 @@ def _get_hf_dataset(
         tokenized_dataset = tokenized_dataset.remove_columns("text")
 
     def group_texts(examples: Dict):
+        result = {"id": [], "input_ids": []}
+        current_chunk = {"id": [], "input_ids": []}
 
-        result = {'id':[], 'input_ids':[]}
-        current_chunk = {'id':[], 'input_ids':[]}
-
-        for utt_id, input_ids in zip(examples['id'], examples['input_ids']):
-            if len(current_chunk['input_ids']) + len(input_ids) > block_size:
+        for utt_id, input_ids in zip(examples["id"], examples["input_ids"]):
+            if len(current_chunk["input_ids"]) + len(input_ids) > block_size:
                 # block is ready to be added to result
-                current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
+                current_chunk["input_ids"] += [EOS] * (
+                    block_size - len(current_chunk["input_ids"])
+                )  # pad remainder with EOS
 
-                result['input_ids'].append(current_chunk['input_ids'])
-                result['id'].append(current_chunk['id'])
+                result["input_ids"].append(current_chunk["input_ids"])
+                result["id"].append(current_chunk["id"])
 
-                current_chunk = {'id':[], 'input_ids':[]}
+                current_chunk = {"id": [], "input_ids": []}
 
-            current_chunk['id'].append(utt_id)
-            current_chunk['input_ids'] += input_ids
+            current_chunk["id"].append(utt_id)
+            current_chunk["input_ids"] += input_ids
 
-        current_chunk['input_ids'] += [EOS] * (block_size - len(current_chunk['input_ids'])) # pad remainder with EOS
-        result['input_ids'].append(current_chunk['input_ids'])
-        result['id'].append(current_chunk['id'])
+        current_chunk["input_ids"] += [EOS] * (
+            block_size - len(current_chunk["input_ids"])
+        )  # pad remainder with EOS
+        result["input_ids"].append(current_chunk["input_ids"])
+        result["id"].append(current_chunk["id"])
 
         return result
 
@@ -249,12 +260,13 @@ def get_data_state(config: OmegaConf) -> DataState:
 
     return DataState(train=train, test=test)
 
+
 def collate_fn(batch):
-    utt_ids = [item['id'] for item in batch]
+    utt_ids = [item["id"] for item in batch]
 
-    input_ids = torch.stack([item['input_ids'] for item in batch])
+    input_ids = torch.stack([item["input_ids"] for item in batch])
 
-    return {"id":utt_ids, "input_ids":input_ids}
+    return {"id": utt_ids, "input_ids": input_ids}
 
 
 def get_data_loaders(

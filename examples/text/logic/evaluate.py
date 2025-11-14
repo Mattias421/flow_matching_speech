@@ -28,6 +28,7 @@ class WrappedModel(ModelWrapper):
     def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
         return self.model(x_t=x, time=t).float()
 
+
 @torch.no_grad()
 def compute_perplexity(
     sample_dir, step, kenlm_path, dataloader, tokenizer, o: int = 2, rank=0
@@ -122,7 +123,9 @@ def estimate_likelihood(
         discretization = discretization * (1 - epsilon)
 
         for k in discretization[:, : x_1.shape[0]]:
-            x_0 = source_distribution.sample_like(x_1, speech_noise_prob=0.0, text_noise_prob=1.0)
+            x_0 = source_distribution.sample_like(
+                x_1, speech_noise_prob=0.0, text_noise_prob=1.0
+            )
             x_t = linear_path.sample(t=k, x_0=x_0, x_1=x_1).x_t
 
             t = path.scheduler.kappa_inverse(k)

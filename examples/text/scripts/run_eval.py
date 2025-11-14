@@ -14,10 +14,11 @@ from contextlib import closing
 
 from eval import run_mp_eval
 
+
 def find_free_port():
     """Finds a free port on the host machine."""
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(('', 0))  # Bind to port 0 to let the OS pick a free port
+        s.bind(("", 0))  # Bind to port 0 to let the OS pick a free port
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         return s.getsockname()[1]  # Return the port number assigned by the OS
 

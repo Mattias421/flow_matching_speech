@@ -79,8 +79,7 @@ def run_eval(
         torch.set_float32_matmul_precision("high")
 
     if transcribe:
-
-        sample_dir = work_dirs.samples / split 
+        sample_dir = work_dirs.samples / split
 
         data_state = data._get_dataset(
             name=data_name,
@@ -105,7 +104,7 @@ def run_eval(
 
         generate.generate_transcription(
             model=model,
-            step=sampling_steps, # results stored in iter_{sampling_steps}
+            step=sampling_steps,  # results stored in iter_{sampling_steps}
             sample_dir=sample_dir,
             vocab_size=vocab_size,
             dataloader=dataloader,

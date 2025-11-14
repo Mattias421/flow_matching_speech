@@ -35,9 +35,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
     logger.log_devices(device=device, logger=logger)
 
-
     # TODO remove hardcoded vocab_size
-    vocab_size=2051
+    vocab_size = 2051
     source_distribution = flow.get_source_distribution(
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
     )
@@ -72,16 +71,20 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    train_iter, eval_iter, eval_iter_no_cycle  = data.get_data_loaders(config=cfg, data_state=data_state)
+    train_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
+        config=cfg, data_state=data_state
+    )
 
     # Data
     if "librispeech" in cfg.data.train:
-        tokenizer = PreTrainedTokenizerFast(tokenizer_file="outputs/tokenizer-librispeech.json")
+        tokenizer = PreTrainedTokenizerFast(
+            tokenizer_file="outputs/tokenizer-librispeech.json"
+        )
         tokenizer.add_tokens(["[PAD]"], special_tokens=True)
         tokenizer.eos_token = "[EOS]"
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    vocab_size = 2051 # TODO hardcoded vocab_size
+    vocab_size = 2051  # TODO hardcoded vocab_size
 
     if cfg.model.compile:
         state.compile_model()
@@ -103,7 +106,14 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     cer = None
 
     while state.step <= num_train_steps:
-        loss, loss_no_pad, loss_speech, loss_text, loss_speech_no_pad, loss_text_no_pad = training.step(
+        (
+            loss,
+            loss_no_pad,
+            loss_speech,
+            loss_text,
+            loss_speech_no_pad,
+            loss_text_no_pad,
+        ) = training.step(
             loss_fn=loss_fn,
             path=path,
             state=state,
@@ -116,20 +126,39 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             training=True,
             time_epsilon=time_epsilon,
             partial_noise_prob=cfg.flow.partial_noise_prob,
-            unsupervised=cfg.training.unsupervised,
+            unsupervised_prob=cfg.training.unsupervised_prob,
             partial_loss_weight=cfg.training.partial_loss_weight,
         )
 
-        train_loss_values.append([loss, loss_no_pad, loss_speech, loss_text, loss_speech_no_pad, loss_text_no_pad])
+        train_loss_values.append(
+            [
+                loss,
+                loss_no_pad,
+                loss_speech,
+                loss_text,
+                loss_speech_no_pad,
+                loss_text_no_pad,
+            ]
+        )
 
         # Train logging
         if state.step % cfg.logging.log_freq == 0:
-            agg_train_loss_values = torch.tensor(
-                train_loss_values, device=device
-            ).mean(dim=0)
+            agg_train_loss_values = torch.tensor(train_loss_values, device=device).mean(
+                dim=0
+            )
             dist.all_reduce(agg_train_loss_values, dist.ReduceOp.AVG)
 
-            for loss_name, loss_value in zip(["loss", "loss_no_pad", "loss_speech", "loss_text", "loss_speech_no_pad", "loss_text_no_pad"], agg_train_loss_values):
+            for loss_name, loss_value in zip(
+                [
+                    "loss",
+                    "loss_no_pad",
+                    "loss_speech",
+                    "loss_text",
+                    "loss_speech_no_pad",
+                    "loss_text_no_pad",
+                ],
+                agg_train_loss_values,
+            ):
                 logger.log_metric(
                     value=loss_value, name=loss_name, stage="Train", step=state.step
                 )
@@ -146,7 +175,14 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         if state.step % cfg.training.eval_freq == 0:
             logger.info("Evaluating loss...", step=state.step)
 
-            eval_loss, eval_loss_no_pad, eval_loss_speech, eval_loss_text, eval_loss_speech_no_pad, eval_loss_text_no_pad = training.step(
+            (
+                eval_loss,
+                eval_loss_no_pad,
+                eval_loss_speech,
+                eval_loss_text,
+                eval_loss_speech_no_pad,
+                eval_loss_text_no_pad,
+            ) = training.step(
                 state=state,
                 loss_fn=loss_fn,
                 path=path,
@@ -158,7 +194,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 training=False,
                 time_epsilon=time_epsilon,
                 partial_noise_prob=cfg.flow.partial_noise_prob,
-                unsupervised=cfg.training.unsupervised,
+                unsupervised_prob=cfg.training.unsupervised_prob,
                 partial_loss_weight=cfg.training.partial_loss_weight,
             )
 
@@ -220,11 +256,14 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             entropy = evaluate.compute_entropy(samples=samples)
             dist.broadcast(entropy, src=0)
             logger.log_metric(
-            value=entropy.item(), name="Entropy", stage="Evaluation", step=state.step
+                value=entropy.item(),
+                name="Entropy",
+                stage="Evaluation",
+                step=state.step,
             )
 
-            for o in range(2,5):
-                    perplexity = evaluate.compute_perplexity(
+            for o in range(2, 5):
+                perplexity = evaluate.compute_perplexity(
                     sample_dir=work_dirs.samples,
                     step=state.step,
                     kenlm_path=cfg.eval.kenlm_path,
@@ -232,17 +271,19 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                     tokenizer=tokenizer,
                     o=o,
                     rank=rank,
-                    )
+                )
 
+                perplexity = torch.tensor([perplexity], device=device)
+                entropy = torch.tensor([entropy], device=device)
 
-                    perplexity = torch.tensor([perplexity], device=device)
-                    entropy = torch.tensor([entropy], device=device)
+                dist.broadcast(perplexity, src=0)
 
-                    dist.broadcast(perplexity, src=0)
-
-                    logger.log_metric(
-                    value=perplexity.item(), name=f"Perplexity_o{o}", stage="Evaluation", step=state.step
-                    )
+                logger.log_metric(
+                    value=perplexity.item(),
+                    name=f"Perplexity_o{o}",
+                    stage="Evaluation",
+                    step=state.step,
+                )
 
         dist.barrier()
 

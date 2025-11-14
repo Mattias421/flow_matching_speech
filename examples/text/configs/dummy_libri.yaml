@@ -30,7 +30,7 @@ training:
   perplexity_freq: 50000000
   cer_freq: 500
   seed: 42
-  unsupervised: false
+  unsupervised_prob: 0.0
   partial_loss_weight: 1
 
 eval:
