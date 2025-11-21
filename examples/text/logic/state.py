@@ -60,8 +60,11 @@ class TrainState:
             self.model.module.load_state_dict(loaded_state["model"])
             self.step = loaded_state["step"]
             self._data_state.test.sampler.load_state_dict(loaded_state["test_sampler"])
-            self._data_state.train.sampler.load_state_dict(
-                loaded_state["train_sampler"]
+            self._data_state.audio.sampler.load_state_dict(
+                loaded_state["audio_sampler"]
+            )
+            self._data_state.text.sampler.load_state_dict(
+                loaded_state["text_sampler"]
             )
         else:
             ckpt_dir.parent.mkdir(exist_ok=True, parents=True)
@@ -76,7 +79,8 @@ class TrainState:
             "optimizer": self.optimizer.state_dict(),
             "model": self.model.module.state_dict(),
             "step": self.step,
-            "train_sampler": self._data_state.train.sampler.state_dict(),
+            "audio_sampler": self._data_state.audio.sampler.state_dict(),
+            "text_sampler": self._data_state.text.sampler.state_dict(),
             "test_sampler": self._data_state.test.sampler.state_dict(),
         }
 

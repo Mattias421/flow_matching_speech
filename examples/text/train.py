@@ -71,12 +71,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    train_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
+    audio_iter, text_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
         config=cfg, data_state=data_state
     )
 
     # Data
-    if "librispeech" in cfg.data.train:
+    if "librispeech" in cfg.data.text:
         tokenizer = PreTrainedTokenizerFast(
             tokenizer_file="outputs/tokenizer-librispeech.json"
         )
@@ -106,6 +106,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     cer = None
 
     while state.step <= num_train_steps:
+
         (
             loss,
             loss_no_pad,
@@ -118,7 +119,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             path=path,
             state=state,
             scaler=scaler,
-            iterator=train_iter,
+            iterator_audio=audio_iter,
+            iterator_text=text_iter,
             optim_params=cfg.optim,
             device=device,
             source_distribution=source_distribution,
@@ -126,7 +128,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             training=True,
             time_epsilon=time_epsilon,
             partial_noise_prob=cfg.flow.partial_noise_prob,
-            unsupervised_prob=cfg.training.unsupervised_prob,
             partial_loss_weight=cfg.training.partial_loss_weight,
         )
 
@@ -187,14 +188,14 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 loss_fn=loss_fn,
                 path=path,
                 scaler=scaler,
-                iterator=eval_iter,
+                iterator_audio=eval_iter,
+                iterator_text=eval_iter,
                 device=device,
                 source_distribution=source_distribution,
                 logger=logger,
                 training=False,
                 time_epsilon=time_epsilon,
                 partial_noise_prob=cfg.flow.partial_noise_prob,
-                unsupervised_prob=cfg.training.unsupervised_prob,
                 partial_loss_weight=cfg.training.partial_loss_weight,
             )
 

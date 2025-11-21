@@ -44,12 +44,11 @@ def wt_detokenizer(string):
     string = string.replace(" 's", "'s")
     return string
 
-
 def train_tokenizer(data, save_file):
     def get_training_corpus(dataset, batch_size=1000):
-        for i in range(0, len(dataset), batch_size):
-            # !!IMPORTANT: Change "text" to your dataset's text column name
-            yield dataset[i : i + batch_size]["text"]
+        batch_iterator = dataset.iter(batch_size=1000)
+        for batch in batch_iterator:
+            yield batch["text"]
 
     text_iterator = get_training_corpus(data)
     tokenizer = Tokenizer(BPE(unk_token="[UNK]"))

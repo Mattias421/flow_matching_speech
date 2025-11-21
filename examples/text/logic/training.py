@@ -11,6 +11,7 @@ from typing import Optional
 import torch
 from flow_matching.loss import MixturePathGeneralizedKL
 from flow_matching.path import ProbPath
+from flow_matching.utils import categorical
 from omegaconf.dictconfig import DictConfig
 from torch import nn, Tensor
 from torch.cuda.amp import GradScaler
@@ -77,7 +78,8 @@ def step(
     loss_fn: nn.Module,
     path: ProbPath,
     scaler: GradScaler,
-    iterator: DataLoader,
+    iterator_audio: DataLoader,
+    iterator_text: DataLoader,
     device: torch.device,
     source_distribution: SourceDistribution,
     logger: TrainLogger,
@@ -85,7 +87,6 @@ def step(
     partial_noise_prob: float,
     optim_params: Optional[DictConfig] = None,
     time_epsilon: float = 0.0,
-    unsupervised_prob: bool = False,
     partial_loss_weight: float = 1,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
@@ -95,52 +96,43 @@ def step(
     else:
         state.eval()
 
-    x_1 = next(iterator)["input_ids"].to(device)
+    x_1_speech = next(iterator_audio)["input_ids"].to(device)
+    x_1_text = next(iterator_text)["input_ids"].to(device)
+
+    batch_size = x_1_speech.shape[0] # technically half batch_size
+
 
     # Sample from path
-    if torch.rand(1) < unsupervised_prob:
-        with torch.no_grad():
-            block_size = x_1.shape[-1]
-            if state.step % 2 == 0:
-                # predict text label for speech
-                x_0_speech = source_distribution.sample_like(
-                    x_1, speech_noise_prob=0, text_noise_prob=1.0
-                )
-                logits = state.model(
-                    x_t=x_0_speech, time=torch.zeros(x_1.shape[0], device=x_1.device)
-                )
-                x_1_text = logits.argmax(dim=-1)
-                mask = torch.arange(block_size, device=x_1.device)[None, :] < (
-                    block_size // 2
-                )
-                x_1 = x_1 * mask + x_1_text * ~mask
-
-            else:
-                # predict speech label for text
-                x_0_text = source_distribution.sample_like(
-                    x_1, speech_noise_prob=0, text_noise_prob=1.0
-                )
-                logits = state.model(
-                    x_t=x_0_text, time=torch.zeros(x_1.shape[0], device=x_1.device)
-                )
-                x_1_speech = logits.argmax(dim=-1)
-                mask = torch.arange(block_size, device=x_1.device)[None, :] > (
-                    block_size // 2
-                )
-                x_1 = x_1 * mask + x_1_speech * ~mask
-
     with torch.no_grad():
-        if state.step % 2 == 0:
-            x_0 = source_distribution.sample_like(
-                x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob
-            )
-        else:
-            x_0 = source_distribution.sample_like(
-                x_1, speech_noise_prob=partial_noise_prob, text_noise_prob=1.0
-            )
+        # first cycle
+        block_size = x_1_speech.shape[-1]
+        x_0_speech = source_distribution.sample_like(
+            x_1_speech, speech_noise_prob=0, text_noise_prob=1.0
+        )
+        x_0_text = source_distribution.sample_like(
+            x_1_text, speech_noise_prob=1, text_noise_prob=0.0
+        )
 
-        t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
-        path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+        x_0 = torch.cat((x_0_speech, x_0_text), 0)
+
+        logits = state.model(
+            x_t=x_0, time=torch.zeros(x_0.shape[0], device=x_0.device)
+        )
+        p_1t = torch.softmax(logits.float(), -1)
+        x_1_pred = categorical(p_1t.to(dtype=torch.float32))
+
+        # x_1_pred = logits.argmax(dim=-1)
+
+        x_1_pred[:batch_size, :block_size // 2] = x_1_speech[:, :block_size // 2]
+        x_1_pred[batch_size:, block_size // 2:] = x_1_text[:, block_size // 2:]
+
+
+        # second cycle
+        x_0[:batch_size] = source_distribution.sample_like(x_1_pred[:batch_size], speech_noise_prob=1, text_noise_prob=partial_noise_prob)
+        x_0[batch_size:] = source_distribution.sample_like(x_1_pred[batch_size:], speech_noise_prob=partial_noise_prob, text_noise_prob=1)
+
+        t = torch.rand(x_1_pred.shape[0], device=x_1_pred.device) * (1.0 - time_epsilon)
+        path_sample = path.sample(t=t, x_0=x_0, x_1=x_1_pred)
 
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()
@@ -149,26 +141,33 @@ def step(
         logits = state.model(x_t=path_sample.x_t, time=path_sample.t)
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
-            loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
+            loss_full = loss_fn(logits.flatten(0, 1), x_1_pred.flatten(0, 1))
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             loss_full = loss_fn(
-                logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
+                logits=logits, x_1=x_1_pred, x_t=path_sample.x_t, t=path_sample.t
             )
         else:
             raise ValueError("Invalid loss function")
 
-        loss_full = loss_full.reshape(x_1.shape)
+        loss_full = loss_full.reshape(x_1_pred.shape)
         block_size = loss_full.shape[-1]
 
-        loss_weight = torch.ones(block_size, device=device)
-        if state.step % 2 == 0:
-            loss_weight[(block_size // 2 + 1) :] = partial_loss_weight
-        else:
-            loss_weight[: (block_size // 2)] = partial_loss_weight
+        loss_speech = loss_full[:batch_size]
+        loss_text = loss_full[batch_size:]
 
-        loss_weighted = loss_full * loss_weight[None, :]
-        loss = loss_weighted.mean()
+        speech_mask = torch.ones(block_size, device=device)
+        speech_mask[(block_size // 2 + 1):] = 0
+        text_mask = torch.ones(block_size, device=device)
+        text_mask[:block_size // 2] = 0
+
+        loss_speech = loss_speech * speech_mask
+        loss_text = loss_text * text_mask
+
+        loss = loss_speech.mean() + loss_text.mean()
+
+        
+
 
     # Optimization step (only if training=true)
     if training:
@@ -181,23 +180,16 @@ def step(
         )
 
     with torch.no_grad():
-        loss_speech = loss_full[:, : (loss_full.shape[-1] // 2)].mean()
-        loss_text = loss_full[:, (loss_full.shape[-1] // 2 + 1) :].mean()
+        loss_speech_no_pad = loss_speech[x_1_speech != 2050].mean()
+        loss_text_no_pad = loss_text[x_1_text != 2050].mean()
+        loss_no_pad = loss_full[x_1_pred != 2050].mean()  # TODO remove hard coded pad index
 
-        loss_speech_no_pad = loss_full[:, : (loss_full.shape[-1] // 2)][
-            x_1[:, : (loss_full.shape[-1] // 2)] != 2050
-        ].mean()  # TODO remove hard coded pad index
-        loss_text_no_pad = loss_full[:, (loss_full.shape[-1] // 2 + 1) :][
-            x_1[:, (loss_full.shape[-1] // 2 + 1) :] != 2050
-        ].mean()  # TODO remove hard coded pad index
-
-        loss_no_pad = loss_full[x_1 != 2050].mean()  # TODO remove hard coded pad index
 
     return (
         loss.detach(),
         loss_no_pad,
-        loss_speech,
-        loss_text,
+        loss_speech.mean(),
+        loss_text.mean(),
         loss_speech_no_pad,
         loss_text_no_pad,
     )
