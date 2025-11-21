@@ -156,17 +156,14 @@ def step(
         loss_speech = loss_full[:batch_size]
         loss_text = loss_full[batch_size:]
 
-        speech_mask = torch.ones(block_size, device=device)
-        speech_mask[(block_size // 2 + 1):] = 0
-        text_mask = torch.ones(block_size, device=device)
-        text_mask[:block_size // 2] = 0
-
-        loss_speech = loss_speech * speech_mask
-        loss_text = loss_text * text_mask
+        loss_speech = loss_speech[:, :block_size // 2]
+        loss_text = loss_text[:, (block_size // 2 + 1):]
 
         loss = loss_speech.mean() + loss_text.mean()
 
-        
+        if state.step % 1000 == 0:
+            breakpoint()
+
 
 
     # Optimization step (only if training=true)
@@ -180,8 +177,8 @@ def step(
         )
 
     with torch.no_grad():
-        loss_speech_no_pad = loss_speech[x_1_speech != 2050].mean()
-        loss_text_no_pad = loss_text[x_1_text != 2050].mean()
+        loss_speech_no_pad = loss_speech[x_1_speech[:, :block_size // 2] != 2050].mean()
+        loss_text_no_pad = loss_text[x_1_text[:, (block_size // 2 + 1):] != 2050].mean()
         loss_no_pad = loss_full[x_1_pred != 2050].mean()  # TODO remove hard coded pad index
 
 

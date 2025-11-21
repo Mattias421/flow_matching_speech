@@ -95,7 +95,7 @@ def _get_hf_dataset(
     PAD = 2050
 
     if "librispeech" in name:
-        if name == "librispeech_lm" and not Path("outputs/tokenizer-librispeech.json").exists():
+        if not Path("outputs/tokenizer-librispeech.json").exists():
             logger.info("training new tokenizer")
             train_tokenizer(data, "outputs/tokenizer-librispeech.json")
             logger.info("trained successfully")
