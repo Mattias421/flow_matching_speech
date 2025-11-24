@@ -20,7 +20,8 @@ logging:
   group: null
 
 data:
-  train: librispeech
+  audio: librispeech
+  text: librispeech_lm
   valid: librispeech
   cache_dir: /path/to/cache/dir
   num_workers: 8
