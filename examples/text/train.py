@@ -107,6 +107,11 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     while state.step <= num_train_steps:
 
+        if state.step % 2 == 0:
+            train_iter = audio_iter
+        else:
+            train_iter = text_iter
+
         (
             loss,
             loss_no_pad,
@@ -119,8 +124,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             path=path,
             state=state,
             scaler=scaler,
-            iterator_audio=audio_iter,
-            iterator_text=text_iter,
+            iterator=train_iter,
             optim_params=cfg.optim,
             device=device,
             source_distribution=source_distribution,
@@ -188,8 +192,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 loss_fn=loss_fn,
                 path=path,
                 scaler=scaler,
-                iterator_audio=eval_iter,
-                iterator_text=eval_iter,
+                iterator=eval_iter,
                 device=device,
                 source_distribution=source_distribution,
                 logger=logger,
