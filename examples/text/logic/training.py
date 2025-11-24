@@ -127,6 +127,7 @@ def step(
             )
             x_1 = x_1 * mask + x_1_speech * ~mask
 
+        # stage 2
         if state.step % 2 == 0:
             x_0 = source_distribution.sample_like(
                 x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob
