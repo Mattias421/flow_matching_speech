@@ -21,7 +21,7 @@ logging:
 
 data:
   audio: librispeech
-  text: librispeech_lm
+  text: librispeech
   valid: librispeech
   cache_dir: /path/to/cache/dir
   num_workers: 8
