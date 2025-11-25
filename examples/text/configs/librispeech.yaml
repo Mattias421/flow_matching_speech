@@ -46,9 +46,9 @@ eval:
   kenlm_path: /path/to/kenlm
 
 optim:
-  weight_decay: 0.03
+  weight_decay: 0.0007
   optimizer: AdamW
-  lr: 1e-3
+  lr: 0.0007
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
@@ -73,7 +73,7 @@ model:
   length: 1024
   n_blocks: 12
   n_heads: 12
-  dropout: 0
+  dropout: 0.1
   compile: true
 
 hydra_dir: /path/to/hydra/dir
