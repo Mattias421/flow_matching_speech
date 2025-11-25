@@ -71,19 +71,17 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    train_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
+    audio_iter, text_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
         config=cfg, data_state=data_state
     )
 
     # Data
-    if "librispeech" in cfg.data.train:
-        tokenizer = PreTrainedTokenizerFast(
-            tokenizer_file="outputs/tokenizer-librispeech.json"
-        )
-        tokenizer.add_tokens(["[PAD]"], special_tokens=True)
-        tokenizer.eos_token = "[EOS]"
-    else:
-        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_file="outputs/tokenizer-librispeech.json"
+    )
+    tokenizer.add_tokens(["[PAD]"], special_tokens=True)
+    tokenizer.eos_token = "[EOS]"
+
     vocab_size = 2051  # TODO hardcoded vocab_size
 
     if cfg.model.compile:
@@ -106,6 +104,11 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     cer = None
 
     while state.step <= num_train_steps:
+        if state.step % 2 == 0:
+            train_iter = audio_iter
+        else:
+            train_iter = text_iter
+
         (
             loss,
             loss_no_pad,

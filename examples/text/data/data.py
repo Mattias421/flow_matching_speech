@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 def _get_hf_dataset(
     name: str,
     mode: str,
-    max_decode_ratio: float,
     cache_dir: str = None,
     block_size: int = 1024,
     num_proc: int = 8,
@@ -187,7 +186,8 @@ class Dataset:
 
 @dataclass
 class DataState:
-    train: Dataset = field(metadata={"help": "Train dataset"})
+    audio: Dataset = field(metadata={"help": "Audio dataset"})
+    text: Dataset = field(metadata={"help": "text dataset"})
     test: Dataset = field(metadata={"help": "Test dataset"})
 
 
@@ -199,7 +199,6 @@ def _get_dataset(
     num_proc: int,
     batch_size: int,
     ngpus: int,
-    max_decode_ratio: float,
 ) -> Dataset:
     assert batch_size % ngpus == 0, (
         f"{mode} batch size must be divisible by number of gpus."
@@ -208,7 +207,6 @@ def _get_dataset(
     dataset = _get_hf_dataset(
         name=name,
         mode=mode,
-        max_decode_ratio=max_decode_ratio,
         cache_dir=cache_dir,
         block_size=block_size,
         num_proc=num_proc,
@@ -218,18 +216,27 @@ def _get_dataset(
 
     return Dataset(dataset=dataset, sampler=sampler)
 
-
 def get_data_state(config: OmegaConf) -> DataState:
-    train = _get_dataset(
-        name=config.data.train,
-        mode="train",
+    text = _get_dataset(
+        name=config.data.text,
+        mode="text",
         cache_dir=config.data.cache_dir,
         block_size=config.model.length,
         num_proc=config.data.num_workers,
         batch_size=config.training.batch_size,
         ngpus=config.compute.ngpus,
-        max_decode_ratio=config.data.max_decode_ratio,
     )
+
+    audio = _get_dataset(
+        name=config.data.audio,
+        mode="audio",
+        cache_dir=config.data.cache_dir,
+        block_size=config.model.length,
+        num_proc=config.data.num_workers,
+        batch_size=config.training.batch_size,
+        ngpus=config.compute.ngpus,
+    )
+
     test = _get_dataset(
         name=config.data.valid,
         mode="validation",
@@ -238,10 +245,9 @@ def get_data_state(config: OmegaConf) -> DataState:
         num_proc=config.data.num_workers,
         batch_size=config.eval.batch_size,
         ngpus=config.compute.ngpus,
-        max_decode_ratio=config.data.max_decode_ratio,
     )
 
-    return DataState(train=train, test=test)
+    return DataState(audio=audio, text=text, test=test)
 
 
 def collate_fn(batch):
@@ -251,20 +257,39 @@ def collate_fn(batch):
 
     return {"id": utt_ids, "input_ids": input_ids}
 
+def collate_fn_unpaired(batch):
+
+    input_ids = torch.stack([item["input_ids"] for item in batch])
+
+    return {"input_ids": input_ids}
+
 
 def get_data_loaders(
     config: OmegaConf,
     data_state: DataState,
 ) -> Tuple[Iterable, Iterable]:
-    train_loader = cycle_loader(
+    audio_loader = cycle_loader(
         DataLoader(
-            data_state.train.dataset,
-            batch_size=config.training.batch_size // config.compute.ngpus,
-            collate_fn=collate_fn,
-            sampler=data_state.train.sampler,
+            data_state.audio.dataset,
+            batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
+            collate_fn=collate_fn_unpaired,
+            sampler=data_state.audio.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.train.sampler is None),
+            shuffle=(data_state.audio.sampler is None),
+            persistent_workers=True,
+        )
+    )
+
+    text_loader = cycle_loader(
+        DataLoader(
+            data_state.text.dataset,
+            batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
+            collate_fn=collate_fn_unpaired,
+            sampler=data_state.text.sampler,
+            num_workers=config.data.num_workers,
+            pin_memory=True,
+            shuffle=(data_state.text.sampler is None),
             persistent_workers=True,
         )
     )
@@ -291,4 +316,6 @@ def get_data_loaders(
         shuffle=(data_state.test.sampler is None),
     )
 
-    return iter(train_loader), iter(valid_loader), valid_loader_no_cycle
+    return iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_no_cycle
+
+
