@@ -55,6 +55,14 @@ def _get_hf_dataset(
                     data["train.other.500"],
                 ]
             )
+        elif mode == "text":
+            data = concatenate_datasets(
+                [
+                    data["train.clean.100"],
+                    data["train.clean.360"],
+                    data["train.other.500"],
+                ]
+            )
         elif mode == "validation":
             data = concatenate_datasets(
                 [data["validation.clean"], data["validation.other"]]
@@ -73,7 +81,7 @@ def _get_hf_dataset(
     elif name == "librispeech_lm":
         builder = load_dataset_builder('openslr/librispeech_lm', cache_dir=cache_dir, trust_remote_code=True)
         builder.download_and_prepare()
-        data = builder.as_dataset(split='train') 
+        data = builder.as_dataset(split='train')
         data = data.train_test_split(train_size=0.01, seed=42)['train'] # trim because 80m rows is far too many
         data = data.filter(lambda example : len(example['text']) <= 510)
     else:

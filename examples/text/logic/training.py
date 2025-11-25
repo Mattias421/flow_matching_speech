@@ -116,7 +116,7 @@ def step(
         else:
             # predict speech label for text
             x_0_text = source_distribution.sample_like(
-                x_1, speech_noise_prob=1.0, text_noise_prob=0.0
+                x_1, speech_noise_prob=0.0, text_noise_prob=1.0
             )
             logits = state.model(
                 x_t=x_0_text, time=torch.zeros(x_1.shape[0], device=x_1.device)
