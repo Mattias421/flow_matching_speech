@@ -35,8 +35,7 @@ training:
   perplexity_freq: 5000000
   cer_freq: 5000
   seed: 42
-  unsupervised_prob: 0.0
-  partial_loss_weight: 1
+  partial_loss_weight: 0
 
 eval:
   batch_size: 128
@@ -66,7 +65,7 @@ flow:
   exponent: 1.
   scheduler_type: polynomial
   sampling_steps: 64
-  partial_noise_prob: 0.01
+  partial_noise_prob: 0
 
 model:
   hidden_size: 768
