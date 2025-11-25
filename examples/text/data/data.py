@@ -47,7 +47,7 @@ def _get_hf_dataset(
         )[mode]
     elif name == "librispeech":
         data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
-        if mode == "train":
+        if mode == "audio" or mode == "text":
             data = concatenate_datasets(
                 [
                     data["train.clean.100"],
