@@ -97,9 +97,16 @@ def step(
 
     x_1 = next(iterator)["input_ids"].to(device)
 
+
     # Sample from path
     with torch.no_grad():
+        if state.step < 2500:
+            partial_noise_prob = 1
+        else:
+            partial_noise_prob = max((5000 - state.step) / 2500, 0) 
+
         block_size = x_1.shape[-1]
+
         if state.step % 2 == 0:
             # predict text label for speech
             x_0_speech = source_distribution.sample_like(
@@ -114,10 +121,14 @@ def step(
             )
             x_1 = x_1 * mask + x_1_text * ~mask
 
+            x_0 = source_distribution.sample_like(
+                x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob
+            )
+
         else:
             # predict speech label for text
             x_0_text = source_distribution.sample_like(
-                x_1, speech_noise_prob=0, text_noise_prob=1.0
+                x_1, speech_noise_prob=1, text_noise_prob=0.0
             )
             logits = state.model(
                 x_t=x_0_text, time=torch.zeros(x_1.shape[0], device=x_1.device)
@@ -128,11 +139,6 @@ def step(
             )
             x_1 = x_1 * mask + x_1_speech * ~mask
 
-        if state.step % 2 == 0:
-            x_0 = source_distribution.sample_like(
-                x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob
-            )
-        else:
             x_0 = source_distribution.sample_like(
                 x_1, speech_noise_prob=partial_noise_prob, text_noise_prob=1.0
             )
@@ -156,6 +162,9 @@ def step(
         else:
             raise ValueError("Invalid loss function")
 
+        pad_weight = torch.ones(loss_full.shape, device=device)
+        pad_weight[x_1.flatten(0,1) == 2050] = 0.2
+        loss_full = loss_full * pad_weight
         loss_full = loss_full.reshape(x_1.shape)
         block_size = loss_full.shape[-1]
 
