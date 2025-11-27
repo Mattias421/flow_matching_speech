@@ -37,6 +37,8 @@ training:
   seed: 42
   partial_loss_weight: 0
   unsupervised_prob: 1
+  uncond_warmup: 5000
+  pad_weight: 0.5
 
 eval:
   batch_size: 128

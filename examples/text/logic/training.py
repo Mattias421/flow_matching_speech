@@ -11,6 +11,8 @@ from typing import Optional
 import torch
 from flow_matching.loss import MixturePathGeneralizedKL
 from flow_matching.path import ProbPath
+from flow_matching.solver import MixtureDiscreteEulerSolver
+from flow_matching.utils import ModelWrapper
 from omegaconf.dictconfig import DictConfig
 from torch import nn, Tensor
 from torch.cuda.amp import GradScaler
@@ -83,6 +85,8 @@ def step(
     logger: TrainLogger,
     training: bool,
     partial_noise_prob: float,
+    pad_weight: float,
+    uncond_warmup: int,
     optim_params: Optional[DictConfig] = None,
     time_epsilon: float = 0.0,
     unsupervised_prob: bool = False,
@@ -100,10 +104,14 @@ def step(
 
     # Sample from path
     with torch.no_grad():
-        if state.step < 2500:
+        if state.step < uncond_warmup // 2:
             partial_noise_prob = 1
         else:
+<<<<<<< HEAD
             partial_noise_prob = max((5000 - state.step) / 2500, 0)
+=======
+            partial_noise_prob = max((uncond_warmup - state.step) / (uncond_warmup // 2), 0)
+>>>>>>> 292a86ae4af4e9b69651bce386c4e305254712ac
 
         block_size = x_1.shape[-1]
 
@@ -112,10 +120,30 @@ def step(
             x_0_speech = source_distribution.sample_like(
                 x_1, speech_noise_prob=0, text_noise_prob=1.0
             )
-            logits = state.model(
-                x_t=x_0_speech, time=torch.zeros(x_1.shape[0], device=x_1.device)
+
+            class WrappedASRModel(ModelWrapper):
+                def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
+                    # Note: logit's precision is important.
+                    x[:, : (block_size // 2)] = x_0_speech[
+                        :, : (block_size // 2)
+                    ]  # force speech to be constant
+                    return torch.softmax(self.model(x_t=x, time=t).float(), -1)
+
+            wrapped_probability_denoiser = WrappedASRModel(state.model)
+
+            solver = MixtureDiscreteEulerSolver(
+                model=wrapped_probability_denoiser,
+                path=path,
+                vocabulary_size=2051,
             )
-            x_1_text = logits.argmax(dim=-1)
+
+            x_1_text = solver.sample(
+                x_init=x_0_speech,
+                step_size=1 / 8,
+                time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
+                dtype_categorical=torch.float64,
+            )
+
             mask = torch.arange(block_size, device=x_1.device)[None, :] < (
                 block_size // 2
             )
@@ -130,10 +158,30 @@ def step(
             x_0_text = source_distribution.sample_like(
                 x_1, speech_noise_prob=1, text_noise_prob=0.0
             )
-            logits = state.model(
-                x_t=x_0_text, time=torch.zeros(x_1.shape[0], device=x_1.device)
+
+            class WrappedTTSModel(ModelWrapper):
+                def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
+                    # Note: logit's precision is important.
+                    x[:, (block_size // 2):] = x_0_text[
+                            :, (block_size // 2):
+                    ]  # force speech to be constant
+                    return torch.softmax(self.model(x_t=x, time=t).float(), -1)
+
+            wrapped_probability_denoiser = WrappedTTSModel(state.model)
+
+            solver = MixtureDiscreteEulerSolver(
+                model=wrapped_probability_denoiser,
+                path=path,
+                vocabulary_size=2051,
             )
-            x_1_speech = logits.argmax(dim=-1)
+
+            x_1_speech = solver.sample(
+                x_init=x_0_text,
+                step_size=1 / 8,
+                time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
+                dtype_categorical=torch.float64,
+            )
+
             mask = torch.arange(block_size, device=x_1.device)[None, :] > (
                 block_size // 2
             )
@@ -159,12 +207,13 @@ def step(
             loss_full = loss_fn(
                 logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
             )
+            loss_full = loss_full.flatten(0,1)
         else:
             raise ValueError("Invalid loss function")
 
-        pad_weight = torch.ones(loss_full.shape, device=device)
-        pad_weight[x_1.flatten(0,1) == 2050] = 0.5
-        loss_full = loss_full * pad_weight
+        loss_pad_weight = torch.ones(loss_full.shape, device=device)
+        loss_pad_weight[x_1.flatten(0,1) == 2050] = pad_weight
+        loss_full = loss_full * loss_pad_weight
         loss_full = loss_full.reshape(x_1.shape)
         block_size = loss_full.shape[-1]
 

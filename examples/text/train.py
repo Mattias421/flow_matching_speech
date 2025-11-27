@@ -129,6 +129,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             training=True,
             time_epsilon=time_epsilon,
             partial_noise_prob=cfg.flow.partial_noise_prob,
+            pad_weight=cfg.training.pad_weight,
+            uncond_warmup=cfg.training.uncond_warmup,
             unsupervised_prob=cfg.training.unsupervised_prob,
             partial_loss_weight=cfg.training.partial_loss_weight,
         )
@@ -197,6 +199,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 training=False,
                 time_epsilon=time_epsilon,
                 partial_noise_prob=cfg.flow.partial_noise_prob,
+                pad_weight=cfg.training.pad_weight,
+                uncond_warmup=cfg.training.uncond_warmup,
                 unsupervised_prob=cfg.training.unsupervised_prob,
                 partial_loss_weight=cfg.training.partial_loss_weight,
             )
