@@ -36,6 +36,7 @@ training:
   cer_freq: 5000
   seed: 42
   partial_loss_weight: 0
+  unsupervised_prob: 1
 
 eval:
   batch_size: 128
@@ -61,7 +62,7 @@ optim:
 
 flow:
   source_distribution: asr  # [asr]
-  loss_function: generalized_kl  # [cross_entropy, generalized_kl]
+  loss_function: cross_entropy  # [cross_entropy, generalized_kl]
   exponent: 1.
   scheduler_type: polynomial
   sampling_steps: 64

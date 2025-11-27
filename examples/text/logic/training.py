@@ -103,7 +103,7 @@ def step(
         if state.step < 2500:
             partial_noise_prob = 1
         else:
-            partial_noise_prob = max((5000 - state.step) / 2500, 0) 
+            partial_noise_prob = max((5000 - state.step) / 2500, 0)
 
         block_size = x_1.shape[-1]
 
@@ -163,7 +163,7 @@ def step(
             raise ValueError("Invalid loss function")
 
         pad_weight = torch.ones(loss_full.shape, device=device)
-        pad_weight[x_1.flatten(0,1) == 2050] = 0.2
+        pad_weight[x_1.flatten(0,1) == 2050] = 0.5
         loss_full = loss_full * pad_weight
         loss_full = loss_full.reshape(x_1.shape)
         block_size = loss_full.shape[-1]
