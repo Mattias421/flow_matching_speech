@@ -36,6 +36,8 @@ training:
   cer_freq: 5000
   seed: 42
   partial_loss_weight: 0
+  uncond_warmup: 5000
+  pad_weight: 0.5
 
 eval:
   batch_size: 128
