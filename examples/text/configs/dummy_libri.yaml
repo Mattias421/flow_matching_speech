@@ -16,6 +16,7 @@ logging:
   group: null
 
 data:
+  train: librispeech_dummy
   audio: librispeech_dummy
   text: librispeech_dummy
   valid: librispeech_dummy
@@ -29,12 +30,12 @@ training:
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  cer_freq: 2500
+  cer_freq: 1000
   seed: 42
   unsupervised_prob: 1
-  partial_loss_weight: 0
-  uncond_warmup: 5000
-  pad_weight: 0.5
+  partial_loss_weight: 1
+  uncond_warmup: 200
+  pad_weight: 1.0
 
 eval:
   batch_size: 16
@@ -47,7 +48,7 @@ eval:
 optim:
   weight_decay: 0.03
   optimizer: AdamW
-  lr: 8e-4
+  lr: 1e-3
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
@@ -55,7 +56,7 @@ optim:
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false
-  n_iters: 40000
+  n_iters: 10000
   log_lr_every: ${logging.log_lr_every}
 
 flow:
@@ -72,7 +73,7 @@ model:
   length: 1024
   n_blocks: 12
   n_heads: 12
-  dropout: 0
+  dropout: 0.1
   compile: true
 
 hydra_dir: /path/to/hydra/dir

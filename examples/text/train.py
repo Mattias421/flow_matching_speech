@@ -71,7 +71,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    audio_iter, text_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
+    train_iter, audio_iter, text_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
         config=cfg, data_state=data_state
     )
 
@@ -103,11 +103,18 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     cer = None
 
+    def batch_iter(): 
+        while True:
+            yield False, 'audio', train_iter, False
+            yield False, 'text', train_iter, False
+            # yield True, 'audio', audio_iter, False
+            # yield True, 'text', text_iter, True
+
+    batch_loader = batch_iter()
+
     while state.step <= num_train_steps:
-        if state.step % 2 == 0:
-            train_iter = audio_iter
-        else:
-            train_iter = text_iter
+        
+        unsupervised, mode, iterator, accum = next(batch_loader)
 
         (
             loss,
@@ -121,7 +128,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             path=path,
             state=state,
             scaler=scaler,
-            iterator=train_iter,
+            iterator=iterator,
             optim_params=cfg.optim,
             device=device,
             source_distribution=source_distribution,
@@ -131,7 +138,9 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             partial_noise_prob=cfg.flow.partial_noise_prob,
             pad_weight=cfg.training.pad_weight,
             uncond_warmup=cfg.training.uncond_warmup,
-            unsupervised_prob=cfg.training.unsupervised_prob,
+            accum=accum,
+            mode=mode,
+            unsupervised=unsupervised,
             partial_loss_weight=cfg.training.partial_loss_weight,
         )
 
@@ -201,7 +210,9 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 partial_noise_prob=cfg.flow.partial_noise_prob,
                 pad_weight=cfg.training.pad_weight,
                 uncond_warmup=cfg.training.uncond_warmup,
-                unsupervised_prob=cfg.training.unsupervised_prob,
+                unsupervised=False,
+                accum=False,
+                mode='text',
                 partial_loss_weight=cfg.training.partial_loss_weight,
             )
 
@@ -236,61 +247,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             logger.log_metric(
                 value=cer, name="CER", stage="Evaluation", step=state.step
             )
-
-        # Generation
-        if state.step % cfg.training.perplexity_freq == 0:
-            state.eval()
-
-            logger.info("Generating text...", step=state.step)
-
-            # only run eval on one gpu
-            samples = generate.generate_samples(
-                model=state.model,
-                step=state.step,
-                sample_dir=work_dirs.samples,
-                vocab_size=vocab_size,
-                tokenizer=tokenizer,
-                rank=rank,
-                device=device,
-                path=path,
-                source_distribution=source_distribution,
-                sample_batch_size=cfg.eval.sample_batch_size,
-                sequence_length=cfg.model.length,
-                sampling_steps=cfg.flow.sampling_steps,
-                time_epsilon=time_epsilon,
-            )
-
-            entropy = evaluate.compute_entropy(samples=samples)
-            dist.broadcast(entropy, src=0)
-            logger.log_metric(
-                value=entropy.item(),
-                name="Entropy",
-                stage="Evaluation",
-                step=state.step,
-            )
-
-            for o in range(2, 5):
-                perplexity = evaluate.compute_perplexity(
-                    sample_dir=work_dirs.samples,
-                    step=state.step,
-                    kenlm_path=cfg.eval.kenlm_path,
-                    dataloader=eval_iter_no_cycle,
-                    tokenizer=tokenizer,
-                    o=o,
-                    rank=rank,
-                )
-
-                perplexity = torch.tensor([perplexity], device=device)
-                entropy = torch.tensor([entropy], device=device)
-
-                dist.broadcast(perplexity, src=0)
-
-                logger.log_metric(
-                    value=perplexity.item(),
-                    name=f"Perplexity_o{o}",
-                    stage="Evaluation",
-                    step=state.step,
-                )
 
         dist.barrier()
 
