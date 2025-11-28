@@ -20,6 +20,7 @@ logging:
   group: null
 
 data:
+  train: librispeech
   audio: librispeech
   text: librispeech
   valid: librispeech

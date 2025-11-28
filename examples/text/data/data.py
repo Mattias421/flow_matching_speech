@@ -47,7 +47,7 @@ def _get_hf_dataset(
         )[mode]
     elif name == "librispeech":
         data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
-        if mode == "audio" or mode == "text":
+        if mode == "audio" or mode == "text" or mode == "train":
             data = concatenate_datasets(
                 [
                     data["train.clean.100"],
@@ -186,6 +186,7 @@ class Dataset:
 
 @dataclass
 class DataState:
+    train: Dataset = field(metadata={"help": "train dataset"})
     audio: Dataset = field(metadata={"help": "Audio dataset"})
     text: Dataset = field(metadata={"help": "text dataset"})
     test: Dataset = field(metadata={"help": "Test dataset"})
@@ -237,6 +238,16 @@ def get_data_state(config: OmegaConf) -> DataState:
         ngpus=config.compute.ngpus,
     )
 
+    train = _get_dataset(
+        name=config.data.train,
+        mode="train",
+        cache_dir=config.data.cache_dir,
+        block_size=config.model.length,
+        num_proc=config.data.num_workers,
+        batch_size=config.training.batch_size,
+        ngpus=config.compute.ngpus,
+    )
+
     test = _get_dataset(
         name=config.data.valid,
         mode="validation",
@@ -247,7 +258,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         ngpus=config.compute.ngpus,
     )
 
-    return DataState(audio=audio, text=text, test=test)
+    return DataState(train=train, audio=audio, text=text, test=test)
 
 
 def collate_fn(batch):
@@ -294,6 +305,18 @@ def get_data_loaders(
         )
     )
 
+    train_loader = cycle_loader(
+        DataLoader(
+            data_state.train.dataset,
+            batch_size=config.training.batch_size // config.compute.ngpus,
+            collate_fn=collate_fn,
+            sampler=data_state.train.sampler,
+            num_workers=config.data.num_workers,
+            pin_memory=True,
+            shuffle=(data_state.test.sampler is None),
+        )
+    )
+
     valid_loader = cycle_loader(
         DataLoader(
             data_state.test.dataset,
@@ -316,6 +339,6 @@ def get_data_loaders(
         shuffle=(data_state.test.sampler is None),
     )
 
-    return iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_no_cycle
+    return iter(train_loader), iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_no_cycle
 
 
