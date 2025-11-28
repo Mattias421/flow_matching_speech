@@ -107,11 +107,7 @@ def step(
         if state.step < uncond_warmup // 2:
             partial_noise_prob = 1
         else:
-<<<<<<< HEAD
-            partial_noise_prob = max((5000 - state.step) / 2500, 0)
-=======
             partial_noise_prob = max((uncond_warmup - state.step) / (uncond_warmup // 2), 0)
->>>>>>> 292a86ae4af4e9b69651bce386c4e305254712ac
 
         block_size = x_1.shape[-1]
 
@@ -139,7 +135,7 @@ def step(
 
             x_1_text = solver.sample(
                 x_init=x_0_speech,
-                step_size=1 / 8,
+                step_size=1 / 2,
                 time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
                 dtype_categorical=torch.float64,
             )
@@ -177,7 +173,7 @@ def step(
 
             x_1_speech = solver.sample(
                 x_init=x_0_text,
-                step_size=1 / 8,
+                step_size=1 / 2,
                 time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
                 dtype_categorical=torch.float64,
             )
