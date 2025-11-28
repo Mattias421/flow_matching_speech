@@ -73,7 +73,7 @@ model:
   length: 1024
   n_blocks: 12
   n_heads: 12
-  dropout: 0.1
+  dropout: 0
   compile: true
 
 hydra_dir: /path/to/hydra/dir
