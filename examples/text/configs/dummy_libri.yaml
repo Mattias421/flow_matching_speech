@@ -30,7 +30,7 @@ training:
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  cer_freq: 1000
+  cer_freq: 500
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
@@ -73,7 +73,7 @@ model:
   length: 1024
   n_blocks: 12
   n_heads: 12
-  dropout: 0
+  dropout: 0.1
   compile: true
 
 hydra_dir: /path/to/hydra/dir

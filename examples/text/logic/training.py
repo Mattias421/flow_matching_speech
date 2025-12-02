@@ -185,7 +185,8 @@ def step(
             loss_weight[: (block_size // 2)] = partial_loss_weight # mask speech
 
         loss_weighted = loss_full * loss_weight[None, :]
-        loss = loss_weighted.mean()
+        unsup_weight = 1
+        loss = loss_weighted.mean() * unsup_weight
 
     # Optimization step (only if training=true)
     if training:

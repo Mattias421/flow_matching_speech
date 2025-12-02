@@ -47,12 +47,17 @@ def _get_hf_dataset(
         )[mode]
     elif name == "librispeech":
         data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
-        if mode == "audio" or mode == "text" or mode == "train":
+        if mode == "audio" or mode == "text":
+            data = concatenate_datasets(
+                [
+                    data["train.clean.360"],
+                    data["train.other.500"],
+                ]
+            )
+        elif mode == "train":
             data = concatenate_datasets(
                 [
                     data["train.clean.100"],
-                    data["train.clean.360"],
-                    data["train.other.500"],
                 ]
             )
         elif mode == "validation":
@@ -67,9 +72,20 @@ def _get_hf_dataset(
             Audio(sampling_rate=24000),  # mimi expects 24khz
         )
     elif name == "librispeech_dummy":
-        data = load_dataset(
-            "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
-        )
+
+        num_train = 20
+        if mode == 'train':
+            data = load_dataset(
+                    "hf-internal-testing/librispeech_asr_dummy", "clean", split=f"validation[:{num_train}]"
+            )
+        elif mode == 'validation':
+            data = load_dataset(
+                    "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
+            )
+        else:
+            data = load_dataset(
+                    "hf-internal-testing/librispeech_asr_dummy", "clean", split=f"validation[{num_train}:]"
+            )
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
 

@@ -107,8 +107,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         while True:
             yield False, 'audio', train_iter, False
             yield False, 'text', train_iter, False
-            # yield True, 'audio', audio_iter, False
-            # yield True, 'text', text_iter, True
+            yield True, 'audio', audio_iter, False
+            yield True, 'text', text_iter, False
 
     batch_loader = batch_iter()
 
