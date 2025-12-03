@@ -45,7 +45,7 @@ def optimization_step(
     logger: TrainLogger,
     accum: bool,
 ) -> None:
-    loss = loss 
+    loss = loss
     scaler.scale(loss).backward()
 
     if accum:
@@ -114,7 +114,7 @@ def step(
         # if state.step < uncond_warmup // 2:
         #     partial_noise_prob = 1
         # else:
-        #     partial_noise_prob = max((uncond_warmup - state.step) / (uncond_warmup // 2), 0) 
+        #     partial_noise_prob = max((uncond_warmup - state.step) / (uncond_warmup // 2), 0)
 
         block_size = x_1.shape[-1]
 
