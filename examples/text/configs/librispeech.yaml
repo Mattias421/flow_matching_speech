@@ -36,9 +36,9 @@ training:
   perplexity_freq: 5000000
   cer_freq: 5000
   seed: 42
-  partial_loss_weight: 0
+  partial_loss_weight: 1
   uncond_warmup: 5000
-  pad_weight: 0.5
+  pad_weight: 1.0
 
 eval:
   batch_size: 128
