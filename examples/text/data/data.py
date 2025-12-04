@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, Tuple
 from pathlib import Path
 
-from datasets import DatasetDict, load_dataset, concatenate_datasets, Audio
+from datasets import DatasetDict, load_dataset, concatenate_datasets, Audio, load_dataset_builder
 from omegaconf import OmegaConf
 
 import torch
@@ -28,9 +28,11 @@ logger = logging.getLogger(__name__)
 def _get_hf_dataset(
     name: str,
     mode: str,
+    codec_name: str,
     cache_dir: str = None,
     block_size: int = 1024,
     num_proc: int = 8,
+    train_percent: int = 100,
 ) -> DatasetDict:
     detokenizer = None
 
@@ -50,16 +52,13 @@ def _get_hf_dataset(
         if mode == "audio" or mode == "text":
             data = concatenate_datasets(
                 [
+                    data["train.clean.100"],
                     data["train.clean.360"],
                     data["train.other.500"],
                 ]
             )
         elif mode == "train":
-            data = concatenate_datasets(
-                [
-                    data["train.clean.100"],
-                ]
-            )
+            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split=f"train.clean.100[:{train_percent}]")
         elif mode == "validation":
             data = concatenate_datasets(
                 [data["validation.clean"], data["validation.other"]]
@@ -67,24 +66,27 @@ def _get_hf_dataset(
         else:
             # test clean or other
             data = data[mode]
-        data = data.cast_column(
-            "audio",
-            Audio(sampling_rate=24000),  # mimi expects 24khz
-        )
+        if codec_name == 'mimi':
+            data = data.cast_column(
+                "audio",
+                Audio(sampling_rate=24000),  # mimi expects 24khz
+            )
+
+    elif name == "librispeech_lm":
+        builder = load_dataset_builder('openslr/librispeech_lm', cache_dir=cache_dir, trust_remote_code=True)
+        builder.download_and_prepare()
+        data = builder.as_dataset(split='train')
+        data = data.train_test_split(train_size=0.01, seed=42)['train'] # trim because 80m rows is far too many
+        data = data.filter(lambda example : len(example['text']) <= 510)
     elif name == "librispeech_dummy":
 
-        num_train = 20
         if mode == 'train':
             data = load_dataset(
-                    "hf-internal-testing/librispeech_asr_dummy", "clean", split=f"validation[:{num_train}]"
-            )
-        elif mode == 'validation':
-            data = load_dataset(
-                    "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
+                    "hf-internal-testing/librispeech_asr_dummy", "clean", split=f"validation[:{train_percent}%]"
             )
         else:
             data = load_dataset(
-                    "hf-internal-testing/librispeech_asr_dummy", "clean", split=f"validation[{num_train}:]"
+                    "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
             )
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
@@ -97,27 +99,123 @@ def _get_hf_dataset(
 
         return detok
 
+
+    # load the model + feature extractor (for pre-processing the audio)
+    if codec_name == 'mimi':
+        model = MimiModel.from_pretrained("kyutai/mimi").to("cuda")
+        feature_extractor = AutoFeatureExtractor.from_pretrained("kyutai/mimi")
+
+        n_vocab = 2048
+
+        def get_audio_tokens(audio):
+            inputs = feature_extractor(
+                raw_audio=audio,
+                sampling_rate=feature_extractor.sampling_rate,
+                return_tensors="pt",
+            ).to("cuda")
+
+            audio_tokens = (
+                model.encode(inputs["input_values"]).audio_codes[:, 0, :].cpu().tolist()
+            )  # 0th codebook is semantic
+            return audio_tokens
+
+    elif codec_name == 'focalcodec':
+        model = torch.hub.load(
+            repo_or_dir="lucadellalib/focalcodec",
+            model="focalcodec",
+            config="lucadellalib/focalcodec_12_5hz",
+            force_reload=True,  # Fetch the latest FocalCodec version from Torch Hub
+        )
+        model.eval().requires_grad_(False).to("cuda")
+
+        n_vocab = 8192
+
+        def get_audio_tokens(audio):
+            batch_size = len(audio)
+            lens = [a.shape[0] for a in audio]
+            max_len = max(lens)
+
+            audio_batch = torch.zeros((batch_size, max_len)).to("cuda")
+
+            for i, (a, le) in enumerate(zip(audio, lens)):
+                audio_batch[i,:le] = torch.tensor(a)
+
+            return model.sig_to_toks(audio_batch)
+
     logger.info("loading tokenizer")
     if "librispeech" in name:
-        if mode == "train" and not Path("outputs/tokenizer-librispeech.json").exists():
+        if mode == "text" and not Path(f"outputs/tokenizer-librispeech-{n_vocab}.json").exists():
             logger.info("training new tokenizer")
-            train_tokenizer(data, "outputs/tokenizer-librispeech.json")
+            train_tokenizer(data, f"outputs/tokenizer-librispeech-{n_vocab}.json", n_vocab)
 
         tokenizer = PreTrainedTokenizerFast(
-            tokenizer_file="outputs/tokenizer-librispeech.json"
+            tokenizer_file=f"outputs/tokenizer-librispeech-{n_vocab}.json"
         )
 
     else:
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
 
     # added tokens
-    EOS = 2048
-    S2T = 2049
-    PAD = 2050
+    EOS = n_vocab
+    S2T = n_vocab + 1
+    PAD = n_vocab + 2
 
-    # load the model + feature extractor (for pre-processing the audio)
-    model = MimiModel.from_pretrained("kyutai/mimi").to("cuda")
-    feature_extractor = AutoFeatureExtractor.from_pretrained("kyutai/mimi")
+    
+    def preprocess_and_tokenize_text(example: Dict):
+        text = example["text"]
+
+        if detokenizer is not None:
+            text = _apply_detokenizer(detokenizer)(text)
+
+        text_tokens = tokenizer(text, return_attention_mask=False)
+
+        input_ids = []
+
+        for text in text_tokens["input_ids"]:
+            seq = []
+            seq += [PAD] * ((block_size // 2))
+            seq.append(S2T)
+            seq += text
+            seq.append(EOS)
+            assert (block_size) > len(seq), (
+                f"Sequence length {len(seq)} greater than block size, consider increasing block_size"
+            )
+            seq += [PAD] * (block_size - len(seq))
+
+            input_ids.append(seq)
+
+        return {"input_ids": input_ids}
+
+    def preprocess_and_tokenize_audio(example: Dict):
+            audio = example["audio"]
+            audio = [a["array"] for a in audio]
+            lens = [a.shape[0] for a in audio]
+            max_len = max(lens)
+            lens = [l / max_len for l in lens]
+
+            audio_tokens = get_audio_tokens(audio)
+
+            input_ids = []
+
+            for audio, audio_len in zip(audio_tokens, lens):
+                seq = []
+                seq += audio[: int(audio_len * len(audio))]
+                seq.append(EOS)
+                assert (block_size // 2) > len(seq), (
+                    "Audio sequence length greater than half block size, consider increasing block_size"
+                )
+                seq += [PAD] * ((block_size // 2) - len(seq))
+                seq.append(S2T)
+                assert (block_size) > len(seq), (
+                    "Sequence length greater than block size, consider increasing block_size"
+                )
+                seq += [PAD] * (block_size - len(seq))
+
+                input_ids.append(seq)
+
+            return {"input_ids": input_ids}
+
+
 
     def preprocess_and_tokenize(example: Dict):
         text = example["text"]
@@ -127,15 +225,8 @@ def _get_hf_dataset(
         max_len = max(lens)
         lens = [l / max_len for l in lens]
 
-        inputs = feature_extractor(
-            raw_audio=audio,
-            sampling_rate=feature_extractor.sampling_rate,
-            return_tensors="pt",
-        ).to("cuda")
+        audio_tokens = get_audio_tokens(audio)
 
-        audio_tokens = (
-            model.encode(inputs["input_values"]).audio_codes[:, 0, :].cpu().tolist()
-        )  # 0th codebook is semantic
 
         if detokenizer is not None:
             text = _apply_detokenizer(detokenizer)(text)
@@ -165,17 +256,32 @@ def _get_hf_dataset(
         return {"input_ids": input_ids}
 
     logger.info("Tokenizing data")
-    tokenized_dataset = data.map(
-        preprocess_and_tokenize,
-        batched=True,
-        batch_size=8,
-        num_proc=1,
-        load_from_cache_file=True,
-    )
+    if mode == 'audio':
+        tokenized_dataset = data.map(
+            preprocess_and_tokenize_audio,
+            batched=True,
+            batch_size=8,
+            num_proc=1,
+            load_from_cache_file=True,
+        )
+    elif mode == 'text':
+        tokenized_dataset = data.map(
+            preprocess_and_tokenize_text,
+            batched=True,
+            batch_size=8,
+            num_proc=1,
+            load_from_cache_file=True,
+        )
+    else:
+        tokenized_dataset = data.map(
+            preprocess_and_tokenize,
+            batched=True,
+            batch_size=8,
+            num_proc=1,
+            load_from_cache_file=True,
+        )
 
     model = model.cpu()
-
-    tokenizer.add_tokens(["[PAD]"], special_tokens=True)  # to save caching time
 
     keep_columns = ["input_ids", "id"]
 
@@ -216,6 +322,8 @@ def _get_dataset(
     num_proc: int,
     batch_size: int,
     ngpus: int,
+    codec_name: str,
+    train_percent: int = 100,
 ) -> Dataset:
     assert batch_size % ngpus == 0, (
         f"{mode} batch size must be divisible by number of gpus."
@@ -227,6 +335,8 @@ def _get_dataset(
         cache_dir=cache_dir,
         block_size=block_size,
         num_proc=num_proc,
+        codec_name=codec_name,
+        train_percent=train_percent,
     )
 
     sampler = StatefulDistributedSampler(dataset=dataset)
@@ -242,6 +352,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         num_proc=config.data.num_workers,
         batch_size=config.training.batch_size,
         ngpus=config.compute.ngpus,
+        codec_name=config.data.codec_name,
     )
 
     audio = _get_dataset(
@@ -252,6 +363,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         num_proc=config.data.num_workers,
         batch_size=config.training.batch_size,
         ngpus=config.compute.ngpus,
+        codec_name=config.data.codec_name,
     )
 
     train = _get_dataset(
@@ -262,6 +374,8 @@ def get_data_state(config: OmegaConf) -> DataState:
         num_proc=config.data.num_workers,
         batch_size=config.training.batch_size,
         ngpus=config.compute.ngpus,
+        codec_name=config.data.codec_name,
+        train_percent=config.data.train_percent,
     )
 
     test = _get_dataset(
@@ -272,6 +386,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         num_proc=config.data.num_workers,
         batch_size=config.eval.batch_size,
         ngpus=config.compute.ngpus,
+        codec_name=config.data.codec_name,
     )
 
     return DataState(train=train, audio=audio, text=text, test=test)

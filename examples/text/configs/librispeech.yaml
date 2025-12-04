@@ -27,7 +27,8 @@ data:
   cache_dir: /path/to/cache/dir
   num_workers: 8
   debug: false
-  max_decode_ratio: 1
+  codec_name: focalcodec # [focalcodec, mimi]
+  train_percent: 10
 
 training:
   batch_size: 128

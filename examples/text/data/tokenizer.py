@@ -45,7 +45,7 @@ def wt_detokenizer(string):
     return string
 
 
-def train_tokenizer(data, save_file):
+def train_tokenizer(data, save_file, n_vocab):
     def get_training_corpus(dataset, batch_size=1000):
         for i in range(0, len(dataset), batch_size):
             # !!IMPORTANT: Change "text" to your dataset's text column name
@@ -55,13 +55,14 @@ def train_tokenizer(data, save_file):
     tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
 
     trainer = BpeTrainer(
-        vocab_size=2048,  # You can change this
+        vocab_size=n_vocab,
     )
 
     tokenizer.train_from_iterator(text_iterator, trainer=trainer)
     tokenizer.add_special_tokens(["[EOS]", "[S2T]", "[PAD]"])
     tokenizer.eos_token = "[EOS]"
     tokenizer.s2t_token = "[S2T]"
+    tokenizer.pad_token = "[PAD]"
     tokenizer.save(save_file)
 
     return tokenizer

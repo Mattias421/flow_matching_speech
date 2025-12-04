@@ -98,6 +98,7 @@ def step(
     time_epsilon: float = 0.0,
     unsupervised: bool = False,
     partial_loss_weight: float = 1,
+    pad_id: int = 0,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -204,13 +205,13 @@ def step(
         loss_text = loss_full[:, (loss_full.shape[-1] // 2 + 1) :].mean()
 
         loss_speech_no_pad = loss_full[:, : (loss_full.shape[-1] // 2)][
-            x_1[:, : (loss_full.shape[-1] // 2)] != 2050
-        ].mean()  # TODO remove hard coded pad index
+            x_1[:, : (loss_full.shape[-1] // 2)] != pad_id
+        ].mean()  
         loss_text_no_pad = loss_full[:, (loss_full.shape[-1] // 2 + 1) :][
-            x_1[:, (loss_full.shape[-1] // 2 + 1) :] != 2050
-        ].mean()  # TODO remove hard coded pad index
+            x_1[:, (loss_full.shape[-1] // 2 + 1) :] != pad_id
+        ].mean()  
 
-        loss_no_pad = loss_full[x_1 != 2050].mean()  # TODO remove hard coded pad index
+        loss_no_pad = loss_full[x_1 != pad_id].mean()  
 
     return (
         loss.detach(),

@@ -35,8 +35,13 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
     logger.log_devices(device=device, logger=logger)
 
-    # TODO remove hardcoded vocab_size
-    vocab_size = 2051
+    if cfg.data.codec_name == 'mimi':
+        vocab_size = 2048
+    elif cfg.data.codec_name == 'focalcodec':
+        vocab_size_codec = 8192
+
+    vocab_size = vocab_size_codec + 3 # eos, s2t, pad
+
     source_distribution = flow.get_source_distribution(
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
     )
@@ -77,12 +82,9 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     # Data
     tokenizer = PreTrainedTokenizerFast(
-        tokenizer_file="outputs/tokenizer-librispeech.json"
+        tokenizer_file=f"outputs/tokenizer-librispeech-{vocab_size_codec}.json"
     )
-    tokenizer.add_tokens(["[PAD]"], special_tokens=True)
-    tokenizer.eos_token = "[EOS]"
-
-    vocab_size = 2051  # TODO hardcoded vocab_size
+    pad_id = tokenizer.encode("[PAD]")[0]
 
     if cfg.model.compile:
         state.compile_model()
@@ -105,8 +107,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     def batch_iter():
         while True:
-            # yield False, 'audio', train_iter, True
-            # yield False, 'text', train_iter, True
+            yield False, 'audio', train_iter, True
+            yield False, 'text', train_iter, True
             yield True, 'audio', audio_iter, False
             yield True, 'text', text_iter, False
 
@@ -142,6 +144,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             mode=mode,
             unsupervised=unsupervised,
             partial_loss_weight=cfg.training.partial_loss_weight,
+            pad_id=pad_id,
         )
 
         train_loss_values.append(
@@ -214,6 +217,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 accum=False,
                 mode='text',
                 partial_loss_weight=cfg.training.partial_loss_weight,
+                pad_id=pad_id,
             )
 
             dist.all_reduce(eval_loss, dist.ReduceOp.AVG)
