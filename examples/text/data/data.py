@@ -46,8 +46,8 @@ def _get_hf_dataset(
             "HuggingFaceFW/fineweb-edu", name="CC-MAIN-2024-10", cache_dir=cache_dir
         )[mode]
     elif name == "librispeech":
-        data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
         if mode == "audio" or mode == "text":
+            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
             data = concatenate_datasets(
                 [
                     data["train.clean.360"],
@@ -55,11 +55,9 @@ def _get_hf_dataset(
                 ]
             )
         elif mode == "train":
-            data = concatenate_datasets(
-                [
-                    data["train.clean.100"],
-                ]
-            )
+            train_pcent = 10
+            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split=f"train.clean.100[:{train_pcent}]")
+
         elif mode == "validation":
             data = concatenate_datasets(
                 [data["validation.clean"], data["validation.other"]]
