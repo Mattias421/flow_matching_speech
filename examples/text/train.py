@@ -36,7 +36,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     logger.log_devices(device=device, logger=logger)
 
     if cfg.data.codec_name == 'mimi':
-        vocab_size = 2048
+        vocab_size_codec = 2048
     elif cfg.data.codec_name == 'focalcodec':
         vocab_size_codec = 8192
 

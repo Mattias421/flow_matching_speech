@@ -18,7 +18,7 @@ logging:
 data:
   train: librispeech_dummy
   audio: librispeech_dummy
-  text: librispeech_dummy
+  text: librispeech_lm
   valid: librispeech_dummy
   cache_dir: /path/to/cache/dir
   num_workers: 8
