@@ -186,8 +186,8 @@ def step(
             loss_weight[: (block_size // 2)] = partial_loss_weight # mask speech
 
         loss_weighted = loss_full * loss_weight[None, :]
-        unsup_weight = max(1, state.step / 1000)
-        loss = loss_weighted.mean() * unsup_weight
+        # unsup_weight = max(1, state.step / 1000)
+        loss = loss_weighted.mean()
 
     # Optimization step (only if training=true)
     if training:
@@ -206,12 +206,12 @@ def step(
 
         loss_speech_no_pad = loss_full[:, : (loss_full.shape[-1] // 2)][
             x_1[:, : (loss_full.shape[-1] // 2)] != pad_id
-        ].mean()  
+        ].mean()
         loss_text_no_pad = loss_full[:, (loss_full.shape[-1] // 2 + 1) :][
             x_1[:, (loss_full.shape[-1] // 2 + 1) :] != pad_id
-        ].mean()  
+        ].mean()
 
-        loss_no_pad = loss_full[x_1 != pad_id].mean()  
+        loss_no_pad = loss_full[x_1 != pad_id].mean()
 
     return (
         loss.detach(),

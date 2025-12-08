@@ -58,7 +58,7 @@ def _get_hf_dataset(
                 ]
             )
         elif mode == "train":
-            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split=f"train.clean.100[:{train_percent}]")
+            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split=f"train.clean.100[:{train_percent}%]")
         elif mode == "validation":
             data = concatenate_datasets(
                 [data["validation.clean"], data["validation.other"]]
@@ -160,7 +160,7 @@ def _get_hf_dataset(
     S2T = n_vocab + 1
     PAD = n_vocab + 2
 
-    
+
     def preprocess_and_tokenize_text(example: Dict):
         text = example["text"]
 
