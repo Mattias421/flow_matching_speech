@@ -111,54 +111,49 @@ def step(
 
 
     # Sample from path
-    with torch.no_grad():
-        # if state.step < uncond_warmup // 2:
-        #     partial_noise_prob = 1
-        # else:
-        #     partial_noise_prob = max((uncond_warmup - state.step) / (uncond_warmup // 2), 0)
 
-        block_size = x_1.shape[-1]
+    block_size = x_1.shape[-1]
 
-        if mode == 'audio':
-            if unsupervised:
-                # predict text label for speech
-                x_0_speech = source_distribution.sample_like(
-                    x_1, speech_noise_prob=0, text_noise_prob=1.0
-                )
-
-                p_1t = torch.softmax(state.model(x_t=x_0_speech, time=torch.zeros(x_1.shape[0], device=x_1.device)).float(), -1)
-                x_1_text = categorical(p_1t.to(dtype=torch.float64))
-
-                mask = torch.arange(block_size, device=x_1.device)[None, :] < (
-                    block_size // 2
-                )
-                x_1 = x_1 * mask + x_1_text * ~mask
-
-            x_0 = source_distribution.sample_like(
-                x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob
+    if mode == 'audio':
+        if unsupervised:
+            # predict text label for speech
+            x_0_real = source_distribution.sample_like(
+                x_1, speech_noise_prob=0, text_noise_prob=1.0
             )
 
-        elif mode == 'text':
-            if unsupervised:
-                # predict speech label for text
-                x_0_text = source_distribution.sample_like(
-                    x_1, speech_noise_prob=1, text_noise_prob=0.0
-                )
+            p_1t = torch.softmax(state.model(x_t=x_0_real, time=torch.zeros(x_1.shape[0], device=x_1.device)).float(), -1)
+            x_1_text = categorical(p_1t.to(dtype=torch.float64))
 
-                p_1t = torch.softmax(state.model(x_t=x_0_text, time=torch.zeros(x_1.shape[0], device=x_1.device)).float(), -1)
-                x_1_speech = categorical(p_1t.to(dtype=torch.float64))
+            mask = torch.arange(block_size, device=x_1.device)[None, :] < (
+                block_size // 2
+            )
+            x_1 = x_1 * mask + x_1_text * ~mask
 
-                mask = torch.arange(block_size, device=x_1.device)[None, :] > (
-                    block_size // 2
-                )
-                x_1 = x_1 * mask + x_1_speech * ~mask
+        x_0 = source_distribution.sample_like(
+            x_1, speech_noise_prob=1.0, text_noise_prob=partial_noise_prob
+        )
 
-            x_0 = source_distribution.sample_like(
-                x_1, speech_noise_prob=partial_noise_prob, text_noise_prob=1.0
+    elif mode == 'text':
+        if unsupervised:
+            # predict speech label for text
+            x_0_real = source_distribution.sample_like(
+                x_1, speech_noise_prob=1, text_noise_prob=0.0
             )
 
-        t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
-        path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+            p_1t = torch.softmax(state.model(x_t=x_0_real, time=torch.zeros(x_1.shape[0], device=x_1.device)).float(), -1)
+            x_1_speech = categorical(p_1t.to(dtype=torch.float64))
+
+            mask = torch.arange(block_size, device=x_1.device)[None, :] > (
+                block_size // 2
+            )
+            x_1 = x_1 * mask + x_1_speech * ~mask
+
+        x_0 = source_distribution.sample_like(
+            x_1, speech_noise_prob=partial_noise_prob, text_noise_prob=1.0
+        )
+
+    t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
+    path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
 
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()
@@ -186,7 +181,6 @@ def step(
             loss_weight[: (block_size // 2)] = partial_loss_weight # mask speech
 
         loss_weighted = loss_full * loss_weight[None, :]
-        # unsup_weight = max(1, state.step / 1000)
         loss = loss_weighted.mean()
 
     # Optimization step (only if training=true)
