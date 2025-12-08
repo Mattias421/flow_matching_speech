@@ -51,13 +51,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         config=cfg.model, vocab_size=vocab_size, masked=source_distribution.masked
     ).to(device)
 
+
     num_parameters = sum(p.numel() for p in model.parameters())
     logger.info(f"Number of parameters in the model: {num_parameters}")
 
     model = DDP(model, device_ids=[rank], static_graph=True)
     logger.info(model)
-
-    # Optimizer initialization
     optimizer = optim.AdamW(
         model.parameters(),
         lr=cfg.optim.lr,
@@ -66,6 +65,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         weight_decay=cfg.optim.weight_decay,
         fused=cfg.optim.fused,
     )
+
     logger.info(f"Optimizer: {optimizer}")
     scaler = torch.amp.GradScaler("cuda")
     logger.info(f"Scaler: {scaler}")
@@ -107,8 +107,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     def batch_iter():
         while True:
-            yield False, 'audio', train_iter, True
-            yield False, 'text', train_iter, True
+            yield False, 'audio', train_iter, False
+            yield False, 'text', train_iter, False
+            yield True, 'audio', audio_iter, True
+            yield True, 'text', text_iter, True
             yield True, 'audio', audio_iter, False
             yield True, 'text', text_iter, False
 
@@ -116,7 +118,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     while state.step <= num_train_steps:
 
-        unsupervised, mode, iterator, accum = next(batch_loader)
+        unsupervised, mode, iterator, unconditional = next(batch_loader)
+
+        if unconditional:
+            partial_noise_prob = 1.0
+        else:
+            partial_noise_prob = cfg.flow.partial_noise_prob
 
         (
             loss,
@@ -137,10 +144,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             logger=logger,
             training=True,
             time_epsilon=time_epsilon,
-            partial_noise_prob=cfg.flow.partial_noise_prob,
+            partial_noise_prob=partial_noise_prob,
             pad_weight=cfg.training.pad_weight,
             uncond_warmup=cfg.training.uncond_warmup,
-            accum=accum,
+            accum=False,
             mode=mode,
             unsupervised=unsupervised,
             partial_loss_weight=cfg.training.partial_loss_weight,

@@ -18,6 +18,7 @@ dependencies = [
     "pyarrow==19.0.0",
     "setuptools>=80.9.0",
     "soundfile>=0.13.1",
+    "speechtokenizer>=1.0.1",
     "torch==2.5.0",
     "transformers>=4.57.1",
     "wandb>=0.22.2",

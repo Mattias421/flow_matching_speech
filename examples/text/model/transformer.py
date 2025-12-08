@@ -255,3 +255,4 @@ class Transformer(nn.Module):
             x = self.output_layer(x=x, c=c)
 
         return x
+
