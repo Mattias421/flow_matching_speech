@@ -89,6 +89,7 @@ def run_eval(
             num_proc=cfg.data.num_workers,
             batch_size=batch_size,
             ngpus=world_size,
+            codec_name=cfg.data.codec_name,
         )
 
         dataloader = DataLoader(
@@ -127,6 +128,7 @@ def run_eval(
             num_proc=cfg.data.num_workers,
             batch_size=batch_size,
             ngpus=world_size,
+            codec_name=cfg.data.codec_name,
         )
 
         dataloader = DataLoader(
