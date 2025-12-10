@@ -87,7 +87,6 @@ def run_eval(
             cache_dir=cfg.data.cache_dir,
             block_size=cfg.model.length,
             num_proc=cfg.data.num_workers,
-            max_decode_ratio=cfg.data.max_decode_ratio,
             batch_size=batch_size,
             ngpus=world_size,
         )
@@ -125,7 +124,6 @@ def run_eval(
             mode=split,
             cache_dir=cfg.data.cache_dir,
             block_size=cfg.model.length,
-            max_decode_ratio=cfg.data.max_decode_ratio,
             num_proc=cfg.data.num_workers,
             batch_size=batch_size,
             ngpus=world_size,
