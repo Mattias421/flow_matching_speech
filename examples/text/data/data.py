@@ -49,6 +49,7 @@ def _get_hf_dataset(
         )[mode]
     elif name == "librispeech":
         if split == 'train':
+            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
             data = concatenate_datasets(
                 [
                     data["train.clean.100"],
