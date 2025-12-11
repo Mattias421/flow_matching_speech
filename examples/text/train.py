@@ -76,7 +76,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    train_iter, audio_iter, text_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
+    audio_iter, text_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
         config=cfg, data_state=data_state
     )
 
@@ -105,29 +105,13 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     cer = None
 
-    def batch_iter():
-        while True:
-            yield False, 'audio', train_iter, False
-            yield False, 'text', train_iter, False
-            # yield True, 'audio', audio_iter, True
-            # yield True, 'text', text_iter, True
-            yield True, 'audio', audio_iter, False
-            yield True, 'text', text_iter, False
-
-    batch_loader = batch_iter()
-
     while state.step <= num_train_steps:
 
-        unsupervised, mode, iterator, unconditional = next(batch_loader)
-
-        if unconditional:
-            partial_noise_prob = 1.0
-        else:
-            partial_noise_prob = cfg.flow.partial_noise_prob
+        text = next(text_iter)
+        audio = next(audio_iter)
 
         (
             loss,
-            loss_no_pad,
             loss_speech,
             loss_text,
             loss_speech_no_pad,
@@ -137,27 +121,20 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             path=path,
             state=state,
             scaler=scaler,
-            iterator=iterator,
+            text=text,
+            audio=audio,
             optim_params=cfg.optim,
             device=device,
             source_distribution=source_distribution,
             logger=logger,
             training=True,
             time_epsilon=time_epsilon,
-            partial_noise_prob=partial_noise_prob,
-            pad_weight=cfg.training.pad_weight,
-            uncond_warmup=cfg.training.uncond_warmup,
-            accum=False,
-            mode=mode,
-            unsupervised=unsupervised,
-            partial_loss_weight=cfg.training.partial_loss_weight,
             pad_id=pad_id,
         )
 
         train_loss_values.append(
             [
                 loss,
-                loss_no_pad,
                 loss_speech,
                 loss_text,
                 loss_speech_no_pad,
@@ -175,7 +152,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             for loss_name, loss_value in zip(
                 [
                     "loss",
-                    "loss_no_pad",
                     "loss_speech",
                     "loss_text",
                     "loss_speech_no_pad",
@@ -201,29 +177,23 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             (
                 eval_loss,
-                eval_loss_no_pad,
                 eval_loss_speech,
                 eval_loss_text,
                 eval_loss_speech_no_pad,
                 eval_loss_text_no_pad,
             ) = training.step(
-                state=state,
                 loss_fn=loss_fn,
                 path=path,
+                state=state,
                 scaler=scaler,
-                iterator=eval_iter,
+                text=text,
+                audio=audio,
+                optim_params=cfg.optim,
                 device=device,
                 source_distribution=source_distribution,
                 logger=logger,
                 training=False,
                 time_epsilon=time_epsilon,
-                partial_noise_prob=cfg.flow.partial_noise_prob,
-                pad_weight=cfg.training.pad_weight,
-                uncond_warmup=cfg.training.uncond_warmup,
-                unsupervised=False,
-                accum=False,
-                mode='text',
-                partial_loss_weight=cfg.training.partial_loss_weight,
                 pad_id=pad_id,
             )
 

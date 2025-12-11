@@ -50,20 +50,16 @@ def generate_transcription(
     raw_hypotheses = []
     raw_references = []
 
-    for batch in tqdm(dataloader, total=len(dataloader)):
-        x_1 = batch["input_ids"].to(device)
-        block_size = x_1.shape[-1]
+    for text_batch, audio_batch in tqdm(dataloader):
+        assert text_batch['id'] == audio_batch['id']
 
-        x_0 = source_distribution.sample_like(
-            x_1, speech_noise_prob=0.0, text_noise_prob=1.0
-        )
+        x_1 = audio_batch["input_ids"].to(device)
+
+        x_0 = source_distribution.sample_like(x_1)
 
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
-                x[:, : (block_size // 2)] = x_0[
-                    :, : (block_size // 2)
-                ]  # force speech to be constant
                 return torch.softmax(self.model(x_t=x, time=t).float(), -1)
 
         wrapped_probability_denoiser = WrappedASRModel(model)
@@ -84,13 +80,11 @@ def generate_transcription(
             return_intermediates=True,
         )
 
-        breakpoint()
-
-        text_sample = sample[:, (block_size // 2 + 1) :]
-        text_ref = x_1[:, (block_size // 2 + 1) :]
+        text_sample = sample[-1]
+        text_ref = text_batch["input_ids"]
 
         for hyp_text_ids, ref_text_ids, utt_id in zip(
-            text_sample, text_ref, batch["id"]
+            text_sample, text_ref, text_batch["id"]
         ):
             text = "".join(tokenizer.convert_ids_to_tokens(hyp_text_ids))
             text = text.replace("[PAD]", "")  # remove padding

@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 def _get_hf_dataset(
     name: str,
     mode: str,
+    split: str,
     codec_name: str,
     cache_dir: str = None,
     block_size: int = 1024,
     num_proc: int = 8,
-    train_percent: int = 100,
 ) -> DatasetDict:
     detokenizer = None
 
@@ -48,21 +48,15 @@ def _get_hf_dataset(
             "HuggingFaceFW/fineweb-edu", name="CC-MAIN-2024-10", cache_dir=cache_dir
         )[mode]
     elif name == "librispeech":
-        data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
-        if mode == "audio" or mode == "text":
+        if split == 'train':
             data = concatenate_datasets(
                 [
                     data["train.clean.100"],
                     data["train.clean.360"],
-                    data["train.other.500"],
                 ]
             )
-        elif mode == "train":
-            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split=f"train.clean.100[:{train_percent}%]")
-        elif mode == "validation":
-            data = concatenate_datasets(
-                [data["validation.clean"], data["validation.other"]]
-            )
+        elif split == "validation":
+            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split="validation.clean")
         else:
             # test clean or other
             data = data[mode]
@@ -80,14 +74,9 @@ def _get_hf_dataset(
         data = data.filter(lambda example : len(example['text']) <= 510)
     elif name == "librispeech_dummy":
 
-        if mode == 'train':
-            data = load_dataset(
-                    "hf-internal-testing/librispeech_asr_dummy", "clean", split=f"validation[:{train_percent}%]"
-            )
-        else:
-            data = load_dataset(
-                    "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
-            )
+        data = load_dataset(
+                "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
+        )
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
 
@@ -173,8 +162,6 @@ def _get_hf_dataset(
 
         for text in text_tokens["input_ids"]:
             seq = []
-            seq += [PAD] * ((block_size // 2))
-            seq.append(S2T)
             seq += text
             seq.append(EOS)
             assert (block_size) > len(seq), (
@@ -205,55 +192,12 @@ def _get_hf_dataset(
                     "Audio sequence length greater than half block size, consider increasing block_size"
                 )
                 seq += [PAD] * ((block_size // 2) - len(seq))
-                seq.append(S2T)
-                assert (block_size) > len(seq), (
-                    "Sequence length greater than block size, consider increasing block_size"
-                )
-                seq += [PAD] * (block_size - len(seq))
 
                 input_ids.append(seq)
 
             return {"input_ids": input_ids}
 
 
-
-    def preprocess_and_tokenize(example: Dict):
-        text = example["text"]
-        audio = example["audio"]
-        audio = [a["array"] for a in audio]
-        lens = [a.shape[0] for a in audio]
-        max_len = max(lens)
-        lens = [l / max_len for l in lens]
-
-        audio_tokens = get_audio_tokens(audio)
-
-
-        if detokenizer is not None:
-            text = _apply_detokenizer(detokenizer)(text)
-
-        text_tokens = tokenizer(text, return_attention_mask=False)
-
-        input_ids = []
-
-        for text, audio, audio_len in zip(text_tokens["input_ids"], audio_tokens, lens):
-            seq = []
-            seq += audio[: int(audio_len * len(audio))]
-            seq.append(EOS)
-            assert (block_size // 2) > len(seq), (
-                "Audio sequence length greater than half block size, consider increasing block_size"
-            )
-            seq += [PAD] * ((block_size // 2) - len(seq))
-            seq.append(S2T)
-            seq += text
-            seq.append(EOS)
-            assert (block_size) > len(seq), (
-                "Sequence length greater than block size, consider increasing block_size"
-            )
-            seq += [PAD] * (block_size - len(seq))
-
-            input_ids.append(seq)
-
-        return {"input_ids": input_ids}
 
     logger.info("Tokenizing data")
     if mode == 'audio':
@@ -267,14 +211,6 @@ def _get_hf_dataset(
     elif mode == 'text':
         tokenized_dataset = data.map(
             preprocess_and_tokenize_text,
-            batched=True,
-            batch_size=8,
-            num_proc=1,
-            load_from_cache_file=True,
-        )
-    else:
-        tokenized_dataset = data.map(
-            preprocess_and_tokenize,
             batched=True,
             batch_size=8,
             num_proc=1,
@@ -308,22 +244,22 @@ class Dataset:
 
 @dataclass
 class DataState:
-    train: Dataset = field(metadata={"help": "train dataset"})
     audio: Dataset = field(metadata={"help": "Audio dataset"})
     text: Dataset = field(metadata={"help": "text dataset"})
-    test: Dataset = field(metadata={"help": "Test dataset"})
+    test_text: Dataset = field(metadata={"help": "Test dataset"})
+    test_audio: Dataset = field(metadata={"help": "Test dataset"})
 
 
 def _get_dataset(
     name: str,
     mode: str,
+    split: str,
     cache_dir: str,
     block_size: int,
     num_proc: int,
     batch_size: int,
     ngpus: int,
     codec_name: str,
-    train_percent: int = 100,
 ) -> Dataset:
     assert batch_size % ngpus == 0, (
         f"{mode} batch size must be divisible by number of gpus."
@@ -332,11 +268,11 @@ def _get_dataset(
     dataset = _get_hf_dataset(
         name=name,
         mode=mode,
+        split=split,
         cache_dir=cache_dir,
         block_size=block_size,
         num_proc=num_proc,
         codec_name=codec_name,
-        train_percent=train_percent,
     )
 
     sampler = StatefulDistributedSampler(dataset=dataset)
@@ -347,6 +283,7 @@ def get_data_state(config: OmegaConf) -> DataState:
     text = _get_dataset(
         name=config.data.text,
         mode="text",
+        split="train",
         cache_dir=config.data.cache_dir,
         block_size=config.model.length,
         num_proc=config.data.num_workers,
@@ -358,6 +295,7 @@ def get_data_state(config: OmegaConf) -> DataState:
     audio = _get_dataset(
         name=config.data.audio,
         mode="audio",
+        split="train",
         cache_dir=config.data.cache_dir,
         block_size=config.model.length,
         num_proc=config.data.num_workers,
@@ -366,21 +304,11 @@ def get_data_state(config: OmegaConf) -> DataState:
         codec_name=config.data.codec_name,
     )
 
-    train = _get_dataset(
-        name=config.data.train,
-        mode="train",
-        cache_dir=config.data.cache_dir,
-        block_size=config.model.length,
-        num_proc=config.data.num_workers,
-        batch_size=config.training.batch_size,
-        ngpus=config.compute.ngpus,
-        codec_name=config.data.codec_name,
-        train_percent=config.data.train_percent,
-    )
 
-    test = _get_dataset(
+    test_text = _get_dataset(
         name=config.data.valid,
-        mode="validation",
+        mode="text",
+        split="validation",
         cache_dir=config.data.cache_dir,
         block_size=config.model.length,
         num_proc=config.data.num_workers,
@@ -389,7 +317,20 @@ def get_data_state(config: OmegaConf) -> DataState:
         codec_name=config.data.codec_name,
     )
 
-    return DataState(train=train, audio=audio, text=text, test=test)
+    test_audio = _get_dataset(
+        name=config.data.valid,
+        mode="audio",
+        split="validation",
+        cache_dir=config.data.cache_dir,
+        block_size=config.model.length,
+        num_proc=config.data.num_workers,
+        batch_size=config.eval.batch_size,
+        ngpus=config.compute.ngpus,
+        codec_name=config.data.codec_name,
+    )
+
+
+    return DataState(audio=audio, text=text, test_text=test_text, test_audio=test_audio)
 
 
 def collate_fn(batch):
@@ -436,40 +377,36 @@ def get_data_loaders(
         )
     )
 
-    train_loader = cycle_loader(
-        DataLoader(
-            data_state.train.dataset,
-            batch_size=config.training.batch_size // config.compute.ngpus,
-            collate_fn=collate_fn,
-            sampler=data_state.train.sampler,
-            num_workers=config.data.num_workers,
-            pin_memory=True,
-            shuffle=(data_state.test.sampler is None),
-        )
-    )
-
     valid_loader = cycle_loader(
         DataLoader(
-            data_state.test.dataset,
+            data_state.test_text.dataset,
             batch_size=config.eval.batch_size // config.compute.ngpus,
             collate_fn=collate_fn,
-            sampler=data_state.test.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.test.sampler is None),
+            shuffle=(data_state.test_text.sampler is None),
         )
     )
 
-    valid_loader_no_cycle = DataLoader(
-        data_state.test.dataset,
-        batch_size=config.eval.batch_size // config.compute.ngpus,
-        collate_fn=collate_fn,
-        sampler=data_state.test.sampler,
-        num_workers=config.data.num_workers,
-        pin_memory=True,
-        shuffle=(data_state.test.sampler is None),
+    valid_loader_no_cycle = zip(
+                DataLoader(
+            data_state.test_text.dataset,
+            batch_size=config.eval.batch_size // config.compute.ngpus,
+            collate_fn=collate_fn,
+            num_workers=config.data.num_workers,
+            pin_memory=True,
+            shuffle=False,
+        ),
+                DataLoader(
+            data_state.test_audio.dataset,
+            batch_size=config.eval.batch_size // config.compute.ngpus,
+            collate_fn=collate_fn,
+            num_workers=config.data.num_workers,
+            pin_memory=True,
+            shuffle=False,
+        )
     )
 
-    return iter(train_loader), iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_no_cycle
+    return iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_no_cycle
 
 

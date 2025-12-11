@@ -61,6 +61,7 @@ class ASRSourceDistribution(SourceDistribution):
         self.vocab_size = 2048
         self.eos_token = 2048
         self.s2t_token = 2049
+        self.pad_token = 2050
 
     @property
     def masked(self) -> bool:
@@ -75,28 +76,8 @@ class ASRSourceDistribution(SourceDistribution):
     def sample_like(
         self,
         x_1: Tensor,
-        speech_noise_prob: float,
-        text_noise_prob: float,
-        return_noise_mask: bool = False,
     ) -> Tensor:
-        block_size = x_1.shape[-1]
-        prob_noise = torch.rand(x_1.shape)
-        noise_mask = (
-            (torch.arange(block_size)[None, :] < (block_size // 2))
-            & (prob_noise < speech_noise_prob)
-        ) | (
-            (torch.arange(block_size)[None, :] > (block_size // 2))
-            & (prob_noise < text_noise_prob)
-        )
-        noise_mask = noise_mask.to(x_1.device)
-
-        padding_mask = torch.full_like(x_1, 2050)
-        x_0 = x_1 * ~noise_mask + padding_mask * noise_mask
-
-        if return_noise_mask:
-            return x_0, noise_mask
-
-        return x_0
+        return torch.full_like(x_1, self.pad_token)
 
 
 def get_path(scheduler_type: str, exponent: Optional[float] = None) -> ProbPath:

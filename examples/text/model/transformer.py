@@ -236,13 +236,18 @@ class Transformer(nn.Module):
             ]
         )
 
-        self.output_layer = DDitFinalLayer(
+        self.output_layer_text = DDitFinalLayer(
+            hidden_size=config.hidden_size,
+            out_channels=vocab_size + add_token,
+            cond_dim=config.cond_dim,
+        )
+        self.output_layer_audio = DDitFinalLayer(
             hidden_size=config.hidden_size,
             out_channels=vocab_size + add_token,
             cond_dim=config.cond_dim,
         )
 
-    def forward(self, x_t: Tensor, time: Tensor) -> Tensor:
+    def forward(self, x_t: Tensor, time: Tensor, mode='text') -> Tensor:
         x = self.vocab_embed(x_t)
         c = F.silu(self.time_embedding(time=time))
 
@@ -252,7 +257,7 @@ class Transformer(nn.Module):
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c)
 
-            x = self.output_layer(x=x, c=c)
+            x = self.output_layer_text(x=x, c=c) if mode == 'text' else self.output_layer_audio(x=x, c=c)
 
         return x
 

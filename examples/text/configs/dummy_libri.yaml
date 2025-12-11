@@ -16,15 +16,14 @@ logging:
   group: null
 
 data:
-  train: librispeech_dummy
   audio: librispeech_dummy
-  text: librispeech_lm
+  text: librispeech_dummy
   valid: librispeech_dummy
   cache_dir: /path/to/cache/dir
   num_workers: 8
   max_decode_ratio: 1
   debug: false
-  codec_name: focalcodec # [focalcodec, mimi]
+  codec_name: mimi # [focalcodec, mimi]
   train_percent: 50
 
 training:
@@ -32,7 +31,7 @@ training:
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  cer_freq: 500
+  cer_freq: 100
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
@@ -72,7 +71,7 @@ flow:
 model:
   hidden_size: 768
   cond_dim: 128
-  length: 1024
+  length: 512
   n_blocks: 12
   n_heads: 12
   dropout: 0.1
