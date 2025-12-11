@@ -76,7 +76,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    audio_iter, text_iter, eval_iter, eval_iter_no_cycle = data.get_data_loaders(
+    audio_iter, text_iter, eval_iter, eval_iter_text, eval_iter_audio = data.get_data_loaders(
         config=cfg, data_state=data_state
     )
 
@@ -213,7 +213,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 step=state.step,
                 sample_dir=work_dirs.samples,
                 vocab_size=vocab_size,
-                dataloader=eval_iter_no_cycle,
+                dataloader=zip(eval_iter_text, eval_iter_audio),
                 tokenizer=tokenizer,
                 rank=rank,
                 device=device,

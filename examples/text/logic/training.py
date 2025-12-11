@@ -105,10 +105,23 @@ def step(
     text = text["input_ids"].to(device)
 
     def dfm_loss(x_1, mode):
-        x_0 = source_distribution.sample_like(x_1)
+        source_mode = 'text' if mode == 'audio' else 'audio'
 
-        t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
-        path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+        source_t = 1 if source_mode == 'audio' else 0
+
+        with torch.no_grad():
+            t_array = torch.ones(x_1.shape[0], device=x_1.device) * source_t
+            model_pred = state.model(x_t=x_1, time=t_array, mode=source_mode).float()
+            p_1t = torch.softmax(model_pred, -1)
+            x_0 = categorical(p_1t.to(dtype=torch.float64))
+
+            t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
+
+            if mode == "audio":
+                path_sample = path.sample(t=t, x_0=x_1, x_1=x_0) # swap boundaries for speech
+            else:
+                path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+
 
         # Forward and compute loss
         ctx = nullcontext() if training else torch.no_grad()

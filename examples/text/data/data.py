@@ -387,26 +387,24 @@ def get_data_loaders(
             shuffle=(data_state.test_text.sampler is None),
         )
     )
-
-    valid_loader_no_cycle = zip(
-                DataLoader(
+    valid_loader_text = DataLoader(
             data_state.test_text.dataset,
             batch_size=config.eval.batch_size // config.compute.ngpus,
             collate_fn=collate_fn,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=False,
-        ),
-                DataLoader(
-            data_state.test_audio.dataset,
-            batch_size=config.eval.batch_size // config.compute.ngpus,
-            collate_fn=collate_fn,
-            num_workers=config.data.num_workers,
-            pin_memory=True,
-            shuffle=False,
+            shuffle=(data_state.test_text.sampler is None),
         )
-    )
 
-    return iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_no_cycle
+    valid_loader_audio = DataLoader(
+                data_state.test_audio.dataset,
+                batch_size=config.eval.batch_size // config.compute.ngpus,
+                collate_fn=collate_fn,
+                num_workers=config.data.num_workers,
+                pin_memory=True,
+                shuffle=False,
+            )
+
+    return iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_text, valid_loader_audio
 
 
