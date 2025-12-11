@@ -53,9 +53,7 @@ def generate_transcription(
     for text_batch, audio_batch in tqdm(dataloader):
         assert text_batch['id'] == audio_batch['id']
 
-        x_1 = audio_batch["input_ids"].to(device)
-
-        x_0 = source_distribution.sample_like(x_1)
+        x_0 = audio_batch["input_ids"].to(device)
 
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
@@ -114,5 +112,7 @@ def generate_transcription(
     cer = None
     if raw_references and raw_hypotheses:
         cer = jiwer.cer(raw_references, raw_hypotheses)
+    else:
+        print("something went wrong with CER calculation")
 
     return cer
