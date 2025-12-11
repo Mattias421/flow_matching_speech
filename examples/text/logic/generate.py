@@ -74,13 +74,17 @@ def generate_transcription(
             vocabulary_size=vocab_size + add_token,
         )
 
+        time_grid = torch.linspace(0.0,1.0-time_epsilon, sampling_steps)
         sample = solver.sample(
             x_init=x_0,
-            step_size=1 / sampling_steps,
-            verbose=True,
+            step_size=None,
+            verbose=False,
             dtype_categorical=dtype_categorical,
-            time_grid=torch.tensor([0.0, 1.0 - time_epsilon]),
+            time_grid=time_grid,
+            return_intermediates=True,
         )
+
+        breakpoint()
 
         text_sample = sample[:, (block_size // 2 + 1) :]
         text_ref = x_1[:, (block_size // 2 + 1) :]
