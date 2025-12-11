@@ -43,15 +43,17 @@ def run_eval(
     cfg = checkpointing.load_cfg_from_path(work_dir=work_dirs.checkpoint)
 
     # Data
-    if "librispeech" in data_name:
-        tokenizer = PreTrainedTokenizerFast(
-            tokenizer_file="outputs/tokenizer-librispeech.json"
-        )
-        tokenizer.add_tokens(["[PAD]"], special_tokens=True)
-        tokenizer.eos_token = "[EOS]"
-        vocab_size = 2051
-    else:
-        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    if cfg.data.codec_name == 'mimi':
+        vocab_size_codec = 2048
+    elif cfg.data.codec_name == 'focalcodec':
+        vocab_size_codec = 8192
+
+    vocab_size = vocab_size_codec + 3 # eos, s2t, pad
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_file=f"outputs/tokenizer-librispeech-{vocab_size_codec}.json"
+    )
+    pad_id = tokenizer.encode("[PAD]")[0]
+
 
     # Flow matching
     path = flow.get_path(

@@ -90,7 +90,7 @@ class ASRSourceDistribution(SourceDistribution):
         )
         noise_mask = noise_mask.to(x_1.device)
 
-        padding_mask = torch.randint_like(x_1, 2050)
+        padding_mask = torch.full_like(x_1, 2050)
         x_0 = x_1 * ~noise_mask + padding_mask * noise_mask
 
         if return_noise_mask:
