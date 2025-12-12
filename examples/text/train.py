@@ -6,6 +6,7 @@
 
 import datetime
 import os
+from copy import deepcopy
 
 import torch
 import torch.distributed as dist
@@ -51,11 +52,14 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         config=cfg.model, vocab_size=vocab_size, masked=source_distribution.masked
     ).to(device)
 
+    source_model = deepcopy(model)
 
     num_parameters = sum(p.numel() for p in model.parameters())
     logger.info(f"Number of parameters in the model: {num_parameters}")
 
     model = DDP(model, device_ids=[rank], static_graph=True)
+    source_model = DDP(source_model, device_ids=[rank], static_graph=True)
+
     logger.info(model)
     optimizer = optim.AdamW(
         model.parameters(),
@@ -73,7 +77,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     data_state = data.get_data_state(config=cfg)
 
     # Train state
-    state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
+    state = TrainState(model=model, source_model=source_model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
     audio_iter, text_iter, eval_iter, eval_iter_text, eval_iter_audio = data.get_data_loaders(
@@ -88,6 +92,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     if cfg.model.compile:
         state.compile_model()
+        state.compile_source_model()
         torch.set_float32_matmul_precision("high")
 
     # Flow matching

@@ -18,11 +18,13 @@ class TrainState:
     def __init__(
         self,
         model: nn.Module,
+        source_model: nn.Module,
         optimizer: Optimizer,
         step: int,
         data_state: DataState,
     ):
         self._model = model
+        self._source_model = source_model
         self._optimizer = optimizer
         self._step = step
         self._data_state = data_state
@@ -44,11 +46,18 @@ class TrainState:
         return self._model
 
     @property
+    def source_model(self) -> nn.Module:
+        return self._source_model
+
+    @property
     def data_state(self) -> DataState:
         return self._data_state
 
     def compile_model(self) -> None:
         self._model = torch.compile(self._model)
+
+    def compile_source_model(self) -> None:
+        self._source_model = torch.compile(self._source_model)
 
     def restore_checkpoint(
         self, ckpt_dir: Path, device: torch.device, rank: int
@@ -58,6 +67,7 @@ class TrainState:
 
             self.optimizer.load_state_dict(loaded_state["optimizer"])
             self.model.module.load_state_dict(loaded_state["model"])
+            self.source_model.module.load_state_dict(loaded_state["model"])
             self.step = loaded_state["step"]
             self._data_state.test_text.sampler.load_state_dict(loaded_state["test_text_sampler"])
             self._data_state.audio.sampler.load_state_dict(
@@ -78,6 +88,7 @@ class TrainState:
         saved_state = {
             "optimizer": self.optimizer.state_dict(),
             "model": self.model.module.state_dict(),
+            "source_model": self.source_model.module.state_dict(),
             "step": self.step,
             "audio_sampler": self._data_state.audio.sampler.state_dict(),
             "text_sampler": self._data_state.text.sampler.state_dict(),
@@ -92,3 +103,4 @@ class TrainState:
 
     def train(self, training: bool = True) -> None:
         self._model.train(mode=training)
+        self._source_model.train(mode=training)

@@ -78,6 +78,12 @@ def optimization_step(
 
     state.optimizer.zero_grad()
 
+    # source soft update
+    with torch.no_grad():
+        for source_param, param in zip(state.source_model.parameters(), state.model.parameters()):
+            source_param.data.copy_(source_param.data * (1.0 - optim_params.source_soft_update_weight) + param.data * optim_params.source_soft_update_weight)
+
+
 
 def step(
     state: TrainState,
@@ -104,42 +110,42 @@ def step(
     audio = audio["input_ids"].to(device)
     text = text["input_ids"].to(device)
 
-    def dfm_loss(x_1, mode):
+    def dfm_loss(x_tgt, mode):
         source_mode = 'text' if mode == 'audio' else 'audio'
 
         source_t = 1 if source_mode == 'audio' else 0
 
         with torch.no_grad():
-            t_array = torch.ones(x_1.shape[0], device=x_1.device) * source_t
-            model_pred = state.model(x_t=x_1, time=t_array, mode=source_mode).float()
-            p_1t = torch.softmax(model_pred, -1)
-            x_0 = categorical(p_1t.to(dtype=torch.float64))
+            t_array = torch.ones(x_tgt.shape[0], device=x_tgt.device) * source_t
+            model_pred = state.source_model(x_t=x_tgt, time=t_array, x_source=x_tgt, mode=source_mode).float()
+            p_src = torch.softmax(model_pred, -1)
+            x_src = categorical(p_src.to(dtype=torch.float64))
 
-            t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
+            t = torch.rand(x_tgt.shape[0], device=x_tgt.device) * (1.0 - time_epsilon)
 
             if mode == "audio":
-                path_sample = path.sample(t=t, x_0=x_1, x_1=x_0) # swap boundaries for speech
+                path_sample = path.sample(t=t, x_0=x_tgt, x_1=x_src) # swap boundaries for speech
             else:
-                path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
+                path_sample = path.sample(t=t, x_0=x_src, x_1=x_tgt)
 
 
         # Forward and compute loss
         ctx = nullcontext() if training else torch.no_grad()
 
         with ctx:
-            logits = state.model(x_t=path_sample.x_t, time=path_sample.t, mode=mode)
+            logits = state.model(x_t=path_sample.x_t, time=path_sample.t, x_source=x_src, mode=mode)
 
             if isinstance(loss_fn, nn.CrossEntropyLoss):
-                loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
+                loss_full = loss_fn(logits.flatten(0, 1), x_tgt.flatten(0, 1))
 
             elif isinstance(loss_fn, MixturePathGeneralizedKL):
                 loss_full = loss_fn(
-                    logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
+                    logits=logits, x_1=x_tgt, x_t=path_sample.x_t, t=path_sample.t
                 )
             else:
                 raise ValueError("Invalid loss function")
 
-            loss_full = loss_full.reshape(x_1.shape)
+            loss_full = loss_full.reshape(x_tgt.shape)
         return loss_full
 
     loss_text = dfm_loss(text, 'text')

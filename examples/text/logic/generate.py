@@ -58,7 +58,7 @@ def generate_transcription(
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
-                return torch.softmax(self.model(x_t=x, time=t).float(), -1)
+                return torch.softmax(self.model(x_t=x, time=t, x_source=x_0, mode='text').float(), -1)
 
         wrapped_probability_denoiser = WrappedASRModel(model)
 

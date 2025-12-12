@@ -59,6 +59,7 @@ optim:
   fused: false
   n_iters: 10000
   log_lr_every: ${logging.log_lr_every}
+  source_soft_update_weight: 0.05
 
 flow:
   source_distribution: asr # [asr]
