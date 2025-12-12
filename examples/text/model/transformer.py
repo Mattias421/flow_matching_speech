@@ -93,6 +93,7 @@ class TimestepEmbedder(nn.Module):
 
 
 class DDiTBlock(nn.Module):
+    # cross attention from studying drax https://github.com/aiola-lab/drax/blob/main/drax/model/transformer.py
     def __init__(
         self,
         dim: int,
@@ -119,6 +120,14 @@ class DDiTBlock(nn.Module):
         self.attn_out = nn.Linear(dim, dim, bias=False)
         self.dropout1 = nn.Dropout(dropout)
 
+        # cross attention
+        self.norm_cross = LayerNorm(dim=dim)
+        self.norm_source = LayerNorm(dim=dim)
+        self.q_cross = nn.Linear(dim, dim, bias=False)
+        self.k_cross = nn.Linear(dim, dim, bias=False)
+        self.v_cross = nn.Linear(dim, dim, bias=False)
+        self.cross_out = nn.Linear(dim, dim, bias=False)
+
         self.norm2 = LayerNorm(dim=dim)
         self.mlp = nn.Sequential(
             nn.Linear(dim, mlp_ratio * dim, bias=True),
@@ -126,22 +135,17 @@ class DDiTBlock(nn.Module):
             nn.Linear(mlp_ratio * dim, dim, bias=True),
         )
 
-        self.adaLN_modulation = nn.Linear(cond_dim, 6 * dim, bias=True)
+        self.adaLN_modulation = nn.Linear(cond_dim, 9 * dim, bias=True) # 9 as we include cross attention
         self.adaLN_modulation.weight.data.zero_()
         self.adaLN_modulation.bias.data.zero_()
 
-    def forward(self, x: Tensor, rotary_cos_sin: Tensor, c: Tensor) -> Tensor:
+    def forward(self, x: Tensor, rotary_cos_sin: Tensor, c: Tensor, x_source: Tensor) -> Tensor:
         batch_size, seq_len = x.shape[0], x.shape[1]
 
-        (
-            shift_msa,
-            scale_msa,
-            gate_msa,
-            shift_mlp,
-            scale_mlp,
-            gate_mlp,
-        ) = self.adaLN_modulation(c)[:, None].chunk(6, dim=2)
+        modulation_params = self.adaLN_modulation(c)[:, None].chunk(9, dim=2)
+        shift_msa, scale_msa, gate_msa, shift_cross, scale_cross, gate_cross, shift_mlp, scale_mlp, gate_mlp = modulation_params
 
+        # self attention
         x_skip = x
         x = modulate(x=self.norm1(x), shift=shift_msa, scale=scale_msa)
 
@@ -176,6 +180,30 @@ class DDiTBlock(nn.Module):
             prob=self.dropout,
             training=self.training,
         )
+
+        # cross attention
+        x_skip = x
+        x = modulate(x=self.norm_cross(x), shift=shift_cross, scale=scale_cross)
+        q = self.q_cross(x)
+        x_source = self.norm_source(x_source)
+        k = self.k_cross(x_source)
+        v = self.v_cross(x_source)
+
+        q = rearrange(q, "b s (h d) -> b h s d", h=self.n_heads)
+        k = rearrange(k, "b s (h d) -> b h s d", h=self.n_heads)
+        v = rearrange(v, "b s (h d) -> b h s d", h=self.n_heads)
+
+        x = F.scaled_dot_product_attention(query=q, key=k, value=v)
+        x = rearrange(x, "b h s d -> b s (h d)")
+        x = bias_dropout_add_scale(
+            x=self.cross_out(x),
+            scale=gate_cross,
+            residual=x_skip,
+            prob=self.dropout,
+            training=self.training,
+        )
+
+        # MLP
         x = bias_dropout_add_scale(
             x=self.mlp(modulate(x=self.norm2(x), shift=shift_mlp, scale=scale_mlp)),
             scale=gate_mlp,
@@ -219,7 +247,8 @@ class Transformer(nn.Module):
 
         add_token = 1 if masked else 0
 
-        self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
+        self.text_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
+        self.audio_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
 
         self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
         self.rotary_emb = rotary.Rotary(dim=config.hidden_size // config.n_heads)
@@ -247,15 +276,21 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
-    def forward(self, x_t: Tensor, time: Tensor, mode='text') -> Tensor:
-        x = self.vocab_embed(x_t)
+    def forward(self, x_t: Tensor, time: Tensor, x_source: Tensor, mode : str ='text') -> Tensor:
+        if mode == 'text':
+            x_source = self.audio_embed(x_source)
+            x = self.text_embed(x_t)
+        elif mode == 'audio':
+            x_source = self.text_embed(x_source)
+            x = self.audio_embed(x_t)
+
         c = F.silu(self.time_embedding(time=time))
 
         rotary_cos_sin = self.rotary_emb(x=x)
 
         with torch.amp.autocast("cuda", dtype=torch.bfloat16):
             for i in range(len(self.blocks)):
-                x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c)
+                x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c, x_source=x_source)
 
             x = self.output_layer_text(x=x, c=c) if mode == 'text' else self.output_layer_audio(x=x, c=c)
 
