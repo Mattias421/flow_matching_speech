@@ -151,7 +151,7 @@ def step(
     loss_text = dfm_loss(text, 'text')
     loss_speech = dfm_loss(audio, 'audio')
 
-    loss = loss_text.mean() + loss_speech.mean()
+    loss = loss_text.mean() + optim_params.loss_speech_weight * loss_speech.mean()
 
     # Optimization step (only if training=true)
     if training:

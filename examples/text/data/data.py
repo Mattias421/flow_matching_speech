@@ -165,7 +165,7 @@ def _get_hf_dataset(
             seq = []
             seq += text
             seq.append(EOS)
-            assert (block_size) > len(seq), (
+            assert (block_size) >= len(seq), (
                 f"Sequence length {len(seq)} greater than block size, consider increasing block_size"
             )
             seq += [PAD] * (block_size - len(seq))
@@ -189,10 +189,10 @@ def _get_hf_dataset(
                 seq = []
                 seq += audio[: int(audio_len * len(audio))]
                 seq.append(EOS)
-                assert (block_size // 2) > len(seq), (
-                    "Audio sequence length greater than half block size, consider increasing block_size"
+                assert (block_size) >= len(seq), (
+                    "Audio sequence length greater than block size, consider increasing block_size"
                 )
-                seq += [PAD] * ((block_size // 2) - len(seq))
+                seq += [PAD] * ((block_size) - len(seq))
 
                 input_ids.append(seq)
 
