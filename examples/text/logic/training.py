@@ -110,30 +110,38 @@ def step(
     else:
         state.eval()
 
+    if not supervised:
+        assert audio_batch['id'] != text_batch['id']
+        lengths = (audio_batch['input_ids'] != pad_id).sum(dim=1)
+        _, sorted_indices = torch.sort(lengths, descending=True)
+        audio_batch['input_ids'] = audio_batch['input_ids'][sorted_indices]
+
+        lengths = (text_batch['input_ids'] != pad_id).sum(dim=1)
+        _, sorted_indices = torch.sort(lengths, descending=True)
+        text_batch['input_ids'] = text_batch['input_ids'][sorted_indices]
+    else:
+        assert audio_batch['id'] == text_batch['id']
+
     audio = audio_batch["input_ids"].to(device)
     text = text_batch["input_ids"].to(device)
 
-    def dfm_loss(x_tgt, mode):
+
+    def dfm_loss(x_tgt, mode, cycle=False):
         source_mode = 'text' if mode == 'audio' else 'audio'
 
         source_t = 1 if source_mode == 'audio' else 0
 
         with torch.no_grad():
-            if not supervised:
+            if cycle:
                 source_model = state.model_asr if source_mode == 'text' else state.model_tts
                 t_array = torch.ones(x_tgt.shape[0], device=x_tgt.device) * source_t
                 model_pred = source_model(x_t=x_tgt, time=t_array, x_source=x_tgt, mode=source_mode).float()
                 p_src = torch.softmax(model_pred, -1)
                 x_src = categorical(p_src.to(dtype=torch.float64))
             else:
-                assert audio_batch['id'] == text_batch['id']
                 x_src = text if source_mode == "text" else audio
 
             t = torch.rand(x_tgt.shape[0], device=x_tgt.device) * (1.0 - time_epsilon)
-
-            if state.step < 1000:
-                t = t * (state.step / 1000) + (1 - (state.step / 1000))
-
 
             if mode == "audio":
                 path_sample = path.sample(t=t, x_0=x_tgt, x_1=x_src) # swap boundaries for speech
@@ -164,9 +172,15 @@ def step(
         return loss_full
 
     loss_text = dfm_loss(text, 'text')
+    loss_text_cycle = dfm_loss(text, 'text', cycle=True)
     loss_speech = dfm_loss(audio, 'audio')
+    loss_speech_cycle = dfm_loss(audio, 'audio', cycle=True)
 
-    loss = loss_text.mean() + loss_speech.mean()
+    cosine_decay = 0.5 * (
+        1 + math.cos(math.pi * (state.step) / (2000))
+    )
+
+    loss = (loss_text.mean() + loss_speech.mean()) * cosine_decay + (loss_text_cycle.mean() + loss_speech_cycle.mean())
 
     # Optimization step (only if training=true)
     if training:

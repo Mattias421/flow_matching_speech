@@ -28,7 +28,7 @@ data:
   supervised: False
 
 training:
-  batch_size: 16
+  batch_size: 8
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000

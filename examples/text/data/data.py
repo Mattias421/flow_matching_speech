@@ -262,6 +262,7 @@ def _get_dataset(
     ngpus: int,
     codec_name: str,
     supervised: bool = False,
+    seed: int = 0,
 ) -> Dataset:
     assert batch_size % ngpus == 0, (
         f"{mode} batch size must be divisible by number of gpus."
@@ -277,7 +278,7 @@ def _get_dataset(
         codec_name=codec_name,
     )
 
-    sampler = StatefulDistributedSampler(dataset=dataset) if not supervised else None
+    sampler = StatefulDistributedSampler(dataset=dataset, seed=seed) if not supervised else None
 
     return Dataset(dataset=dataset, sampler=sampler)
 
@@ -293,6 +294,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         ngpus=config.compute.ngpus,
         codec_name=config.data.codec_name,
         supervised=config.data.supervised,
+        seed=0,
     )
 
     audio = _get_dataset(
@@ -306,6 +308,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         ngpus=config.compute.ngpus,
         codec_name=config.data.codec_name,
         supervised=config.data.supervised,
+        seed=1,
     )
 
 
