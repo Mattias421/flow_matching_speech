@@ -29,6 +29,7 @@ data:
   debug: false
   codec_name: mimi # [focalcodec, mimi]
   train_percent: 100
+  supervised: True
 
 training:
   batch_size: 128

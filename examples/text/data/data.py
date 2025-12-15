@@ -348,9 +348,10 @@ def collate_fn(batch):
 
 def collate_fn_unpaired(batch):
 
+    utt_ids = [item["id"] for item in batch]
     input_ids = torch.stack([item["input_ids"] for item in batch])
 
-    return {"input_ids": input_ids}
+    return {"input_ids": input_ids, "id":utt_ids}
 
 
 def get_data_loaders(
@@ -365,7 +366,7 @@ def get_data_loaders(
             sampler=data_state.audio.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.audio.sampler is None),
+            shuffle=(data_state.audio.sampler is not None),
             persistent_workers=True,
         )
     )
@@ -378,7 +379,7 @@ def get_data_loaders(
             sampler=data_state.text.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.text.sampler is None),
+            shuffle=(data_state.text.sampler is not None),
             persistent_workers=True,
         )
     )
@@ -390,7 +391,7 @@ def get_data_loaders(
             collate_fn=collate_fn,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.test_text.sampler is None),
+            shuffle=(data_state.test_text.sampler is not None),
         )
     )
     valid_loader_text = DataLoader(

@@ -48,21 +48,23 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     )
 
     # Model initialization
-    model = Transformer(
+    model_tts = Transformer(
         config=cfg.model, vocab_size=vocab_size, masked=source_distribution.masked
     ).to(device)
 
-    source_model = deepcopy(model)
+    model_asr = Transformer(
+        config=cfg.model, vocab_size=vocab_size, masked=source_distribution.masked
+    ).to(device)
 
-    num_parameters = sum(p.numel() for p in model.parameters())
+    num_parameters = sum(p.numel() for p in model_tts.parameters())
     logger.info(f"Number of parameters in the model: {num_parameters}")
 
-    model = DDP(model, device_ids=[rank], static_graph=True)
-    source_model = DDP(source_model, device_ids=[rank], static_graph=True)
+    model_tts = DDP(model_tts, device_ids=[rank], static_graph=True)
+    model_asr = DDP(model_asr, device_ids=[rank], static_graph=True)
 
-    logger.info(model)
-    optimizer = optim.AdamW(
-        model.parameters(),
+    logger.info(model_tts)
+    optimizer_tts = optim.AdamW(
+        model_tts.parameters(),
         lr=cfg.optim.lr,
         betas=(cfg.optim.beta1, cfg.optim.beta2),
         eps=cfg.optim.eps,
@@ -70,14 +72,23 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         fused=cfg.optim.fused,
     )
 
-    logger.info(f"Optimizer: {optimizer}")
+    optimizer_asr = optim.AdamW(
+        model_asr.parameters(),
+        lr=cfg.optim.lr,
+        betas=(cfg.optim.beta1, cfg.optim.beta2),
+        eps=cfg.optim.eps,
+        weight_decay=cfg.optim.weight_decay,
+        fused=cfg.optim.fused,
+    )
+
+    logger.info(f"Optimizer: {optimizer_tts}")
     scaler = torch.amp.GradScaler("cuda")
     logger.info(f"Scaler: {scaler}")
 
     data_state = data.get_data_state(config=cfg)
 
     # Train state
-    state = TrainState(model=model, source_model=source_model, optimizer=optimizer, step=1, data_state=data_state)
+    state = TrainState(model_tts=model_tts, model_asr=model_asr, optimizer_tts=optimizer_tts, optimizer_asr=optimizer_asr, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
     audio_iter, text_iter, eval_iter, eval_iter_text, eval_iter_audio = data.get_data_loaders(
@@ -92,7 +103,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     if cfg.model.compile:
         state.compile_model()
-        state.compile_source_model()
         torch.set_float32_matmul_precision("high")
 
     # Flow matching
@@ -126,8 +136,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             path=path,
             state=state,
             scaler=scaler,
-            text=text,
-            audio=audio,
+            text_batch=text,
+            audio_batch=audio,
             optim_params=cfg.optim,
             device=device,
             source_distribution=source_distribution,
@@ -192,8 +202,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 path=path,
                 state=state,
                 scaler=scaler,
-                text=text,
-                audio=audio,
+                text_batch=text,
+                audio_batch=audio,
                 optim_params=cfg.optim,
                 device=device,
                 source_distribution=source_distribution,
@@ -216,7 +226,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             logger.info("Generating text...", step=state.step)
 
             cer = generate.generate_transcription(
-                model=state.model,
+                model=state.model_asr,
                 step=state.step,
                 sample_dir=work_dirs.samples,
                 vocab_size=vocab_size,
