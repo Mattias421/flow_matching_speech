@@ -99,6 +99,7 @@ def step(
     optim_params: Optional[DictConfig] = None,
     time_epsilon: float = 0.0,
     pad_id: int = 0,
+    supervised: bool = False,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -116,12 +117,17 @@ def step(
         source_t = 1 if source_mode == 'audio' else 0
 
         with torch.no_grad():
-            t_array = torch.ones(x_tgt.shape[0], device=x_tgt.device) * source_t
-            model_pred = state.source_model(x_t=x_tgt, time=t_array, x_source=x_tgt, mode=source_mode).float()
-            p_src = torch.softmax(model_pred, -1)
-            x_src = categorical(p_src.to(dtype=torch.float64))
+            if supervised:
+                t_array = torch.ones(x_tgt.shape[0], device=x_tgt.device) * source_t
+                model_pred = state.source_model(x_t=x_tgt, time=t_array, x_source=x_tgt, mode=source_mode).float()
+                p_src = torch.softmax(model_pred, -1)
+                x_src = categorical(p_src.to(dtype=torch.float64))
+            else:
+                assert audio['id'] == text['id']
+                x_src = text if source_mode == "text" else audio
 
             t = torch.rand(x_tgt.shape[0], device=x_tgt.device) * (1.0 - time_epsilon)
+
 
             if mode == "audio":
                 path_sample = path.sample(t=t, x_0=x_tgt, x_1=x_src) # swap boundaries for speech

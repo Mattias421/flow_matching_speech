@@ -25,13 +25,14 @@ data:
   debug: false
   codec_name: mimi # [focalcodec, mimi]
   train_percent: 50
+  supervised: True
 
 training:
   batch_size: 16
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  cer_freq: 100
+  cer_freq: 500
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
@@ -59,7 +60,8 @@ optim:
   fused: false
   n_iters: 10000
   log_lr_every: ${logging.log_lr_every}
-  source_soft_update_weight: 0.05
+  source_soft_update_weight: 1.0
+  loss_speech_weight: 0.25
 
 flow:
   source_distribution: asr # [asr]

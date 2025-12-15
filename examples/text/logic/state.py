@@ -69,13 +69,18 @@ class TrainState:
             self.model.module.load_state_dict(loaded_state["model"])
             self.source_model.module.load_state_dict(loaded_state["model"])
             self.step = loaded_state["step"]
-            self._data_state.test_text.sampler.load_state_dict(loaded_state["test_text_sampler"])
-            self._data_state.audio.sampler.load_state_dict(
-                loaded_state["audio_sampler"]
-            )
-            self._data_state.text.sampler.load_state_dict(
-                loaded_state["text_sampler"]
-            )
+
+            if loaded_state["test_text_sampler"]:
+                self._data_state.test_text.sampler.load_state_dict(loaded_state["test_text_sampler"])
+
+            if loaded_state["audio_sampler"]:
+                self._data_state.audio.sampler.load_state_dict(
+                    loaded_state["audio_sampler"]
+                )
+            if loaded_state["text_sampler"]:
+                self._data_state.text.sampler.load_state_dict(
+                    loaded_state["text_sampler"]
+                )
         else:
             ckpt_dir.parent.mkdir(exist_ok=True, parents=True)
 
@@ -90,10 +95,22 @@ class TrainState:
             "model": self.model.module.state_dict(),
             "source_model": self.source_model.module.state_dict(),
             "step": self.step,
-            "audio_sampler": self._data_state.audio.sampler.state_dict(),
-            "text_sampler": self._data_state.text.sampler.state_dict(),
-            "test_text_sampler": self._data_state.test_text.sampler.state_dict(),
         }
+
+        if self._data_state.audio.sampler:
+            saved_state["audio_sampler"] = self._data_state.audio.sampler.state_dict()
+        else:
+            saved_state["audio_sampler"] = None
+
+        if self._data_state.text.sampler:
+            saved_state["text_sampler"] = self._data_state.text.sampler.state_dict()
+        else:
+            saved_state["text_sampler"] = None
+
+        if self._data_state.test_text.sampler:
+            saved_state["test_text_sampler"] = self._data_state.test_text.sampler.state_dict()
+        else:
+            saved_state["test_text_sampler"] = None
 
         if rank == 0:
             torch.save(saved_state, ckpt_dir)

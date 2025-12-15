@@ -261,6 +261,7 @@ def _get_dataset(
     batch_size: int,
     ngpus: int,
     codec_name: str,
+    supervised: bool = False,
 ) -> Dataset:
     assert batch_size % ngpus == 0, (
         f"{mode} batch size must be divisible by number of gpus."
@@ -276,7 +277,7 @@ def _get_dataset(
         codec_name=codec_name,
     )
 
-    sampler = StatefulDistributedSampler(dataset=dataset)
+    sampler = StatefulDistributedSampler(dataset=dataset) if not supervised else None
 
     return Dataset(dataset=dataset, sampler=sampler)
 
@@ -291,6 +292,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         batch_size=config.training.batch_size,
         ngpus=config.compute.ngpus,
         codec_name=config.data.codec_name,
+        supervised=config.data.supervised,
     )
 
     audio = _get_dataset(
@@ -303,6 +305,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         batch_size=config.training.batch_size,
         ngpus=config.compute.ngpus,
         codec_name=config.data.codec_name,
+        supervised=config.data.supervised,
     )
 
 
@@ -316,6 +319,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         batch_size=config.eval.batch_size,
         ngpus=config.compute.ngpus,
         codec_name=config.data.codec_name,
+        supervised=True,
     )
 
     test_audio = _get_dataset(
@@ -328,6 +332,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         batch_size=config.eval.batch_size,
         ngpus=config.compute.ngpus,
         codec_name=config.data.codec_name,
+        supervised=True,
     )
 
 
@@ -394,7 +399,7 @@ def get_data_loaders(
             collate_fn=collate_fn,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.test_text.sampler is None),
+            shuffle=False,
         )
 
     valid_loader_audio = DataLoader(

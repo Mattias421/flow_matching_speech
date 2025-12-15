@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=1 uv run run_train.py --config-name dummy_libri data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs training.unsupervised_prob=1.0 optim.n_iters=10000 training.pad_weight=0.5 data.codec_name=mimi
+uv run run_train.py --config-name dummy_libri data.cache_dir=$HF_DATASETS_CACHE hydra_dir=./outputs training.unsupervised_prob=1.0 optim.n_iters=10000 training.pad_weight=0.5 data.codec_name=mimi
