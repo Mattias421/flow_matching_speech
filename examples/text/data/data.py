@@ -366,7 +366,7 @@ def get_data_loaders(
             sampler=data_state.audio.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.audio.sampler is not None),
+            shuffle=False,
             persistent_workers=True,
         )
     )
@@ -379,7 +379,7 @@ def get_data_loaders(
             sampler=data_state.text.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.text.sampler is not None),
+            shuffle=False,
             persistent_workers=True,
         )
     )
@@ -391,7 +391,7 @@ def get_data_loaders(
             collate_fn=collate_fn,
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.test_text.sampler is not None),
+            shuffle=False
         )
     )
     valid_loader_text = DataLoader(

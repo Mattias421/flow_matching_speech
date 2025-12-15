@@ -120,9 +120,9 @@ def step(
 
         with torch.no_grad():
             if not supervised:
-                # TODO update source model logic
+                source_model = state.model_asr if source_mode == 'text' else state.model_tts
                 t_array = torch.ones(x_tgt.shape[0], device=x_tgt.device) * source_t
-                model_pred = state.source_model(x_t=x_tgt, time=t_array, x_source=x_tgt, mode=source_mode).float()
+                model_pred = source_model(x_t=x_tgt, time=t_array, x_source=x_tgt, mode=source_mode).float()
                 p_src = torch.softmax(model_pred, -1)
                 x_src = categorical(p_src.to(dtype=torch.float64))
             else:
@@ -130,6 +130,9 @@ def step(
                 x_src = text if source_mode == "text" else audio
 
             t = torch.rand(x_tgt.shape[0], device=x_tgt.device) * (1.0 - time_epsilon)
+
+            if state.step < 1000:
+                t = t * (state.step / 1000) + (1 - (state.step / 1000))
 
 
             if mode == "audio":
