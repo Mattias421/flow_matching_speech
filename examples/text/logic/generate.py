@@ -39,6 +39,7 @@ def generate_transcription(
     sample_batch_size: int,
     sequence_length: int,
     sampling_steps: int,
+    pad_id: int,
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
@@ -58,7 +59,7 @@ def generate_transcription(
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
-                return torch.softmax(self.model(x_t=x, time=t, x_source=x_0, mode='text').float(), -1)
+                return torch.softmax(self.model(x_t=x, time=t, x_source=x_0).float(), -1)
 
         wrapped_probability_denoiser = WrappedASRModel(model)
 
@@ -68,9 +69,13 @@ def generate_transcription(
             vocabulary_size=vocab_size + add_token,
         )
 
+        x_init = torch.randint_like(x_0, pad_id)
+        x_init=torch.full_like(x_0, 0)
+
         time_grid = torch.linspace(0.0,1.0-time_epsilon, sampling_steps)
         sample = solver.sample(
-            x_init=x_0,
+            # x_init=x_0,
+            x_init = x_init,
             step_size=None,
             verbose=False,
             dtype_categorical=dtype_categorical,

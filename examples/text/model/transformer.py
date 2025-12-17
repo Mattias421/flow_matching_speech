@@ -247,8 +247,8 @@ class Transformer(nn.Module):
 
         add_token = 1 if masked else 0
 
-        self.text_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
-        self.audio_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
+        self.source_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
+        self.target_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
 
         self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
         self.rotary_emb = rotary.Rotary(dim=config.hidden_size // config.n_heads)
@@ -265,24 +265,15 @@ class Transformer(nn.Module):
             ]
         )
 
-        self.output_layer_text = DDitFinalLayer(
-            hidden_size=config.hidden_size,
-            out_channels=vocab_size + add_token,
-            cond_dim=config.cond_dim,
-        )
-        self.output_layer_audio = DDitFinalLayer(
+        self.output_layer = DDitFinalLayer(
             hidden_size=config.hidden_size,
             out_channels=vocab_size + add_token,
             cond_dim=config.cond_dim,
         )
 
-    def forward(self, x_t: Tensor, time: Tensor, x_source: Tensor, mode : str ='text') -> Tensor:
-        if mode == 'text':
-            x_source = self.audio_embed(x_source)
-            x = self.text_embed(x_t)
-        elif mode == 'audio':
-            x_source = self.text_embed(x_source)
-            x = self.audio_embed(x_t)
+    def forward(self, x_t: Tensor, time: Tensor, x_source: Tensor) -> Tensor:
+        x_source = self.source_embed(x_source)
+        x = self.target_embed(x_t)
 
         c = F.silu(self.time_embedding(time=time))
 
@@ -292,7 +283,7 @@ class Transformer(nn.Module):
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c, x_source=x_source)
 
-            x = self.output_layer_text(x=x, c=c) if mode == 'text' else self.output_layer_audio(x=x, c=c)
+            x = self.output_layer(x=x, c=c)
 
         return x
 

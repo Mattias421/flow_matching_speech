@@ -240,6 +240,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 sequence_length=cfg.model.length,
                 sampling_steps=cfg.flow.sampling_steps,
                 time_epsilon=time_epsilon,
+                pad_id=pad_id,
             )
 
             logger.log_metric(
