@@ -12,11 +12,13 @@ from pathlib import Path
 
 from datasets import DatasetDict, load_dataset, concatenate_datasets, Audio, load_dataset_builder
 from omegaconf import OmegaConf
+from sklearn.cluster import MiniBatchKMeans
+import numpy as np
 
 import torch
 from torch.utils.data import DataLoader
 from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
-from transformers import MimiModel, AutoFeatureExtractor
+from transformers import MimiModel, AutoFeatureExtractor, WhisperProcessor, WhisperForConditionalGeneration
 
 from data.tokenizer import wt_detokenizer, train_tokenizer
 from data.utils import cycle_loader, StatefulDistributedSampler
@@ -61,11 +63,11 @@ def _get_hf_dataset(
         else:
             # test clean or other
             data = data[mode]
-        if codec_name == 'mimi':
-            data = data.cast_column(
-                "audio",
-                Audio(sampling_rate=24000),  # mimi expects 24khz
-            )
+        # if codec_name == 'mimi':
+        #     data = data.cast_column(
+        #         "audio",
+        #         Audio(sampling_rate=24000),  # mimi expects 24khz
+        #     )
 
     elif name == "librispeech_lm":
         builder = load_dataset_builder('openslr/librispeech_lm', cache_dir=cache_dir, trust_remote_code=True)
@@ -132,24 +134,13 @@ def _get_hf_dataset(
 
             return model.sig_to_toks(audio_batch)
 
+
+
     logger.info("loading tokenizer")
-    if "librispeech" in name:
-        if mode == "text" and not Path(f"outputs/tokenizer-librispeech-{n_vocab}.json").exists():
-            logger.info("training new tokenizer")
-            train_tokenizer(data, f"outputs/tokenizer-librispeech-{n_vocab}.json", n_vocab)
-
-        tokenizer = PreTrainedTokenizerFast(
-            tokenizer_file=f"outputs/tokenizer-librispeech-{n_vocab}.json"
-        )
-
-    else:
-        tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-
-    # added tokens
-    EOS = n_vocab
-    S2T = n_vocab + 1
-    PAD = n_vocab + 2
-
+    processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
+    model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v3")
+    del model.model.decoder
+    model = model.model.encoder.to("cuda").eval()
 
     def preprocess_and_tokenize_text(example: Dict):
         text = example["text"]
@@ -157,64 +148,74 @@ def _get_hf_dataset(
         if detokenizer is not None:
             text = _apply_detokenizer(detokenizer)(text)
 
-        text_tokens = tokenizer(text, return_attention_mask=False)
+        normalized_text = [processor.tokenizer.normalize(t) for t in text]
+        text_tokens = processor.tokenizer(normalized_text, return_attention_mask=False)
 
-        input_ids = []
+        return text_tokens
 
-        for text in text_tokens["input_ids"]:
-            seq = []
-            seq += text
-            seq.append(EOS)
-            assert (block_size) >= len(seq), (
-                f"Sequence length {len(seq)} greater than block size, consider increasing block_size"
-            )
-            seq += [PAD] * (block_size - len(seq))
+    def encode_audio(example):
+        audio = example["audio"]["array"]
+        length = len(audio) / (16000 * 30)
+        mel_features = processor(audio, sampling_rate=16000).input_features
+        input_features = torch.tensor(mel_features).to("cuda")
+        with torch.no_grad():
+            neural_features = model(input_features)
+        input_features = input_features.cpu()
+        neural_features = neural_features.last_hidden_state.cpu()
 
-            input_ids.append(seq)
-
-        return {"input_ids": input_ids}
-
-    def preprocess_and_tokenize_audio(example: Dict):
-            audio = example["audio"]
-            audio = [a["array"] for a in audio]
-            lens = [a.shape[0] for a in audio]
-            max_len = max(lens)
-            lens = [l / max_len for l in lens]
-
-            audio_tokens = get_audio_tokens(audio)
-
-            input_ids = []
-
-            for audio, audio_len in zip(audio_tokens, lens):
-                seq = []
-                seq += audio[: int(audio_len * len(audio))]
-                seq.append(EOS)
-                assert (block_size) >= len(seq), (
-                    "Audio sequence length greater than block size, consider increasing block_size"
-                )
-                seq += [PAD] * ((block_size) - len(seq))
-
-                input_ids.append(seq)
-
-            return {"input_ids": input_ids}
-
+        mel_features = mel_features[0,:,:int(length * mel_features.shape[-1])]
+        return {"mel_features":mel_features, "neural_features":neural_features}
 
 
     logger.info("Tokenizing data")
     if mode == 'audio':
         tokenized_dataset = data.map(
-            preprocess_and_tokenize_audio,
-            batched=True,
-            batch_size=8,
+            encode_audio,
+            batched=False,
+            batch_size=1,
             num_proc=1,
             load_from_cache_file=True,
         )
+
+        k_means_data = np.concatenate([np.array(example["mel_features"]).T for example in tokenized_dataset])
+
+        kmeans = MiniBatchKMeans(
+                n_clusters=64,
+                init="k-means++",
+                batch_size=10000,
+                tol=0.0,
+                max_no_improvement=100,
+                n_init=20,
+                reassignment_ratio=0.0,
+                )
+
+        print("training and labelling kmeans model")
+        kmeans_labels = kmeans.fit_predict(k_means_data)
+        idx = 0
+
+        def label_feature(example):
+            global idx
+            length = len(example["mel_features"])
+            labels = kmeans_labels[idx:length]
+            idx += length
+
+            return {"kmeans_labels":labels}
+
+        tokenized_dataset = tokenized_dataset.map(
+            label_feature,
+            batched=False,
+            batch_size=1,
+            num_proc=1,
+            load_from_cache_file=True,
+        )
+
+            
     elif mode == 'text':
         tokenized_dataset = data.map(
             preprocess_and_tokenize_text,
             batched=True,
-            batch_size=8,
-            num_proc=1,
+            batch_size=1000,
+            num_proc=8,
             load_from_cache_file=True,
         )
 

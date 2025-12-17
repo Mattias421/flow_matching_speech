@@ -74,11 +74,12 @@ flow:
 model:
   hidden_size: 768
   cond_dim: 128
-  length: 512
+  length: 128
   n_blocks: 12
   n_heads: 12
   dropout: 0.1
   compile: true
+  whisper_dim: 768
 
 hydra_dir: /path/to/hydra/dir
 
