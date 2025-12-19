@@ -169,6 +169,7 @@ def _get_hf_dataset(
 
     logger.info("Tokenizing data")
     if mode == 'audio':
+        logger.info("encoding audio")
         tokenized_dataset = data.map(
             encode_audio,
             batched=False,
@@ -189,16 +190,12 @@ def _get_hf_dataset(
                 reassignment_ratio=0.0,
                 )
 
-        print("training and labelling kmeans model")
-        kmeans_labels = kmeans.fit_predict(k_means_data)
-        idx = 0
+        logger.info("training and labelling kmeans model")
+        kmeans.fit(k_means_data)
 
         def label_feature(example):
-            global idx
-            length = len(example["mel_features"])
-            labels = kmeans_labels[idx:length]
-            idx += length
-
+            feats = np.array(example["mel_features"]).T
+            labels = kmeans.predict(k_means_data)
             return {"kmeans_labels":labels}
 
         tokenized_dataset = tokenized_dataset.map(
@@ -209,7 +206,7 @@ def _get_hf_dataset(
             load_from_cache_file=True,
         )
 
-            
+
     elif mode == 'text':
         tokenized_dataset = data.map(
             preprocess_and_tokenize_text,
