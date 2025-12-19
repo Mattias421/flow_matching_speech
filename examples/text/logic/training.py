@@ -110,109 +110,50 @@ def step(
     else:
         state.eval()
 
-    if not supervised:
-        assert audio_batch['id'] != text_batch['id']
-        lengths = (audio_batch['input_ids'] != pad_id).sum(dim=1)
-        _, sorted_indices = torch.sort(lengths, descending=True)
-        audio_batch['input_ids'] = audio_batch['input_ids'][sorted_indices]
+    audio_embeddings = audio_batch["neural_features"].to(device)
+    x_1 = text_batch["input_ids"].to(device)
 
-        lengths = (text_batch['input_ids'] != pad_id).sum(dim=1)
-        _, sorted_indices = torch.sort(lengths, descending=True)
-        text_batch['input_ids'] = text_batch['input_ids'][sorted_indices]
-    else:
-        assert audio_batch['id'] == text_batch['id']
+    x_0 = source_distribution.sample_like(x_1, prompt_len=4)
 
-    audio = audio_batch["input_ids"].to(device)
-    text = text_batch["input_ids"].to(device)
+    t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
+
+    path_sample = path.sample(t=t, x_0=x_0, x_1=x_1) # swap boundaries for speech
 
 
-    def dfm_loss(x_tgt, mode, source_dist=None):
-        source_mode = 'text' if mode == 'audio' else 'audio'
+    # Forward and compute loss
+    ctx = nullcontext() if training else torch.no_grad()
 
-        source_t = 1 if source_mode == 'audio' else 0
+    with ctx:
+        logits = state.model(x_t=path_sample.x_t, time=path_sample.t, audio_embeddings=audio_embeddings)
 
-        with torch.no_grad():
-            if source_dist == 'cycle':
-                source_model = state.model_asr if source_mode == 'text' else state.model_tts
-                t_array = torch.ones(x_tgt.shape[0], device=x_tgt.device) * source_t
-                model_pred = source_model(x_t=x_tgt, time=t_array, x_source=x_tgt).float()
-                p_src = torch.softmax(model_pred, -1)
-                x_src = categorical(p_src.to(dtype=torch.float64))
-            elif source_dist == 'mask':
-                x_src = torch.full_like(audio, 0)
-            elif source_dist == 'uniform':
-                x_src = torch.randint_like(audio, pad_id)
-            elif source_dist == 'data':
-                x_src = text if source_mode == "text" else audio
+        if isinstance(loss_fn, nn.CrossEntropyLoss):
+            loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
 
-            t = torch.rand(x_tgt.shape[0], device=x_tgt.device) * (1.0 - time_epsilon)
+        elif isinstance(loss_fn, MixturePathGeneralizedKL):
+            loss_full = loss_fn(
+                logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
+            )
+        else:
+            raise ValueError("Invalid loss function")
 
-            if mode == "audio":
-                path_sample = path.sample(t=t, x_0=x_tgt, x_1=x_src) # swap boundaries for speech
-            else:
-                path_sample = path.sample(t=t, x_0=x_src, x_1=x_tgt)
+        loss_full = loss_full.reshape(x_1.shape)
 
 
-        # Forward and compute loss
-        ctx = nullcontext() if training else torch.no_grad()
-
-        with ctx:
-            target_model = state.model_asr if mode == 'text' else state.model_tts
-            logits = target_model(x_t=path_sample.x_t, time=path_sample.t, x_source=audio)
-
-            if isinstance(loss_fn, nn.CrossEntropyLoss):
-                loss_full = loss_fn(logits.flatten(0, 1), x_tgt.flatten(0, 1))
-
-            elif isinstance(loss_fn, MixturePathGeneralizedKL):
-                loss_full = loss_fn(
-                    logits=logits, x_1=x_tgt, x_t=path_sample.x_t, t=path_sample.t
-                )
-            else:
-                raise ValueError("Invalid loss function")
-
-            loss_full = loss_full.reshape(x_tgt.shape)
-        return loss_full
-
-    loss_text = dfm_loss(text, 'text', 'mask')
-    # loss_text_cycle = dfm_loss(text, 'text', cycle=True)
-    # loss_speech = dfm_loss(audio, 'audio')
-    # loss_speech_cycle = dfm_loss(audio, 'audio', cycle=True)
-    #
-    # cosine_decay = 0.5 * (
-    #     1 + math.cos(math.pi * (state.step) / (2000))
-    # )
-    #
-    # loss = (loss_text.mean() + loss_speech.mean()) * cosine_decay + (loss_text_cycle.mean() + loss_speech_cycle.mean())
-
-    loss_speech = loss_text
-    loss = loss_text.mean()
+    loss = loss_full.mean()
 
     # Optimization step (only if training=true)
     if training:
         optimization_step(
-            model=state.model_asr,
-            optimizer=state.optimizer_asr,
+            model=state.model,
+            optimizer=state.optimizer,
             state=state,
-            loss=loss_text.mean(),
+            loss=loss,
             scaler=scaler,
             optim_params=optim_params,
             logger=logger,
         )
 
-        # optimization_step(
-        #     model=state.model_tts,
-        #     optimizer=state.optimizer_tts,
-        #     state=state,
-        #     loss=loss_speech.mean(),
-        #     scaler=scaler,
-        #     optim_params=optim_params,
-        #     logger=logger,
-        # )
-
     return (
         loss.detach(),
-        loss_speech.mean(),
-        loss_text.mean(),
-        loss_speech[audio != pad_id].mean(),
-        loss_text[text != pad_id].mean(),
+        loss_full[x_1 != pad_id].mean(),
     )

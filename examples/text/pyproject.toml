@@ -11,6 +11,7 @@ dependencies = [
     "hydra-optuna-sweeper>=1.2.0",
     "hydra-submitit-launcher>=1.2.0",
     "jiwer>=4.0.0",
+    "joblib>=1.5.2",
     "kenlm>=0.3.0",
     "librosa>=0.11.0",
     "numpy==1.26.4",

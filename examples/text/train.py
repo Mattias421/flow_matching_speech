@@ -19,7 +19,7 @@ from model import Transformer
 from omegaconf import OmegaConf
 from torch import optim
 from torch.nn.parallel import DistributedDataParallel as DDP
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
+from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, WhisperProcessor
 from utils import checkpointing, logging
 
 
@@ -36,35 +36,29 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
     logger.log_devices(device=device, logger=logger)
 
-    if cfg.data.codec_name == 'mimi':
-        vocab_size_codec = 2048
-    elif cfg.data.codec_name == 'focalcodec':
-        vocab_size_codec = 8192
+    processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
+    tokenizer = processor.tokenizer
 
-    vocab_size = vocab_size_codec + 3 # eos, s2t, pad
+    pad_id = tokenizer.encode("<|endoftranscript|>")[0]
+    vocab_size = len(tokenizer)
 
     source_distribution = flow.get_source_distribution(
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
     )
 
     # Model initialization
-    model_tts = Transformer(
+    model = Transformer(
         config=cfg.model, vocab_size=vocab_size, masked=source_distribution.masked
     ).to(device)
 
-    model_asr = Transformer(
-        config=cfg.model, vocab_size=vocab_size, masked=source_distribution.masked
-    ).to(device)
-
-    num_parameters = sum(p.numel() for p in model_tts.parameters())
+    num_parameters = sum(p.numel() for p in model.parameters())
     logger.info(f"Number of parameters in the model: {num_parameters}")
 
-    model_tts = DDP(model_tts, device_ids=[rank], static_graph=True)
-    model_asr = DDP(model_asr, device_ids=[rank], static_graph=True)
+    model = DDP(model, device_ids=[rank], static_graph=True)
 
-    logger.info(model_tts)
-    optimizer_tts = optim.AdamW(
-        model_tts.parameters(),
+    logger.info(model)
+    optimizer = optim.AdamW(
+        model.parameters(),
         lr=cfg.optim.lr,
         betas=(cfg.optim.beta1, cfg.optim.beta2),
         eps=cfg.optim.eps,
@@ -72,23 +66,14 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         fused=cfg.optim.fused,
     )
 
-    optimizer_asr = optim.AdamW(
-        model_asr.parameters(),
-        lr=cfg.optim.lr,
-        betas=(cfg.optim.beta1, cfg.optim.beta2),
-        eps=cfg.optim.eps,
-        weight_decay=cfg.optim.weight_decay,
-        fused=cfg.optim.fused,
-    )
-
-    logger.info(f"Optimizer: {optimizer_tts}")
+    logger.info(f"Optimizer: {optimizer}")
     scaler = torch.amp.GradScaler("cuda")
     logger.info(f"Scaler: {scaler}")
 
     data_state = data.get_data_state(config=cfg)
 
     # Train state
-    state = TrainState(model_tts=model_tts, model_asr=model_asr, optimizer_tts=optimizer_tts, optimizer_asr=optimizer_asr, step=1, data_state=data_state)
+    state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
     audio_iter, text_iter, eval_iter, eval_iter_text, eval_iter_audio = data.get_data_loaders(
@@ -96,10 +81,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     )
 
     # Data
-    tokenizer = PreTrainedTokenizerFast(
-        tokenizer_file=f"outputs/tokenizer-librispeech-{vocab_size_codec}.json"
-    )
-    pad_id = tokenizer.encode("[PAD]")[0]
 
     if cfg.model.compile:
         state.compile_model()
@@ -127,10 +108,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
         (
             loss,
-            loss_speech,
-            loss_text,
-            loss_speech_no_pad,
-            loss_text_no_pad,
+            loss_no_pad,
         ) = training.step(
             loss_fn=loss_fn,
             path=path,
@@ -151,10 +129,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         train_loss_values.append(
             [
                 loss,
-                loss_speech,
-                loss_text,
-                loss_speech_no_pad,
-                loss_text_no_pad,
+                loss_no_pad,
             ]
         )
 
@@ -168,10 +143,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             for loss_name, loss_value in zip(
                 [
                     "loss",
-                    "loss_speech",
-                    "loss_text",
-                    "loss_speech_no_pad",
-                    "loss_text_no_pad",
+                    "loss_no_pad",
                 ],
                 agg_train_loss_values,
             ):
@@ -193,10 +165,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             (
                 eval_loss,
-                eval_loss_speech,
-                eval_loss_text,
-                eval_loss_speech_no_pad,
-                eval_loss_text_no_pad,
+                eval_loss_no_pad,
             ) = training.step(
                 loss_fn=loss_fn,
                 path=path,
@@ -226,7 +195,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             logger.info("Generating text...", step=state.step)
 
             cer = generate.generate_transcription(
-                model=state.model_asr,
+                model=state.model,
                 step=state.step,
                 sample_dir=work_dirs.samples,
                 vocab_size=vocab_size,

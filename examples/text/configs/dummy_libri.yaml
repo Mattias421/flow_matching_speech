@@ -72,14 +72,14 @@ flow:
   partial_noise_prob: 0
 
 model:
-  hidden_size: 768
-  cond_dim: 128
+  hidden_size: 1280
+  cond_dim: 1280
   length: 128
-  n_blocks: 12
-  n_heads: 12
+  n_blocks: 4
+  n_heads: 20
   dropout: 0.1
   compile: true
-  whisper_dim: 768
+  whisper_dim: 1280
 
 hydra_dir: /path/to/hydra/dir
 
