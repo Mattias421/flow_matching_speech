@@ -54,12 +54,18 @@ def generate_transcription(
     for text_batch, audio_batch in tqdm(dataloader):
         assert text_batch['id'] == audio_batch['id']
 
-        x_0 = audio_batch["input_ids"].to(device)
+        audio_embeddings = audio_batch["neural_features"].to(device)
+        audio_cache = model.module.build_audio_cache(audio_embeddings)
+
+        x_1 = text_batch["input_ids"].to(device)
+        x_0 = source_distribution.sample_like(x_1, prompt_len=4)
 
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
-                return torch.softmax(self.model(x_t=x, time=t, x_source=x_0).float(), -1)
+                x[:, :4] = x_0[:, :4] # reapply prompt
+                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache).float(), -1)
+                return probs
 
         wrapped_probability_denoiser = WrappedASRModel(model)
 
@@ -69,13 +75,9 @@ def generate_transcription(
             vocabulary_size=vocab_size + add_token,
         )
 
-        x_init = torch.randint_like(x_0, pad_id)
-        x_init=torch.full_like(x_0, 0)
-
         time_grid = torch.linspace(0.0,1.0-time_epsilon, sampling_steps)
         sample = solver.sample(
-            # x_init=x_0,
-            x_init = x_init,
+            x_init=x_0,
             step_size=None,
             verbose=False,
             dtype_categorical=dtype_categorical,
@@ -89,18 +91,16 @@ def generate_transcription(
         for hyp_text_ids, ref_text_ids, utt_id in zip(
             text_sample, text_ref, text_batch["id"]
         ):
-            text = "".join(tokenizer.convert_ids_to_tokens(hyp_text_ids))
-            text = text.replace("[PAD]", "")  # remove padding
-            clean_hyp = text.replace("[EOS]", "").strip()
-            raw_hypotheses.append(clean_hyp)
-            trn_hyp = clean_hyp + f" ({utt_id})\n"
+            text = tokenizer.decode(hyp_text_ids, skip_special_tokens=True)
+            text = tokenizer.normalize(text)
+            raw_hypotheses.append(text)
+            trn_hyp = text + f" ({utt_id})\n"
             hyp_trn.append(trn_hyp)
 
-            text = "".join(tokenizer.convert_ids_to_tokens(ref_text_ids))
-            text = text.replace("[PAD]", "")  # remove padding
-            clean_ref = text.replace("[EOS]", "").strip()
-            raw_references.append(clean_ref)
-            trn_ref = clean_ref + f" ({utt_id})\n"
+            text = tokenizer.decode(ref_text_ids, skip_special_tokens=True)
+            text = tokenizer.normalize(text)
+            raw_references.append(text)
+            trn_ref = text + f" ({utt_id})\n"
             ref_trn.append(trn_ref)
 
     if sample_dir is not None:

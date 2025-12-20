@@ -36,7 +36,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
     logger.log_devices(device=device, logger=logger)
 
-    processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
+    processor = WhisperProcessor.from_pretrained("openai/whisper-small")
     tokenizer = processor.tokenizer
 
     pad_id = tokenizer.encode("<|endoftranscript|>")[0]

@@ -138,8 +138,8 @@ def _get_hf_dataset(
 
 
     logger.info("loading tokenizer")
-    processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
-    model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v3")
+    processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+    model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
     del model.model.decoder
     model = model.model.encoder.to("cuda").eval()
 
@@ -149,8 +149,8 @@ def _get_hf_dataset(
         if detokenizer is not None:
             text = _apply_detokenizer(detokenizer)(text)
 
-        normalized_text = [processor.tokenizer.normalize(t) for t in text]
-        text_tokens = processor.tokenizer(normalized_text, return_attention_mask=False)
+        text = [processor.tokenizer.normalize(t) for t in text]
+        text_tokens = processor.tokenizer(text, return_attention_mask=False)
 
         return text_tokens
 
@@ -179,7 +179,10 @@ def _get_hf_dataset(
             load_from_cache_file=True,
         )
 
-        if not Path(f"outputs/{name}.kmeans.pkl").is_file():
+        mel_dim = len(tokenized_dataset[0]["mel_features"])
+
+        if not Path(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl").is_file():
+            logger.info("Training k-means model")
             # only label training data
             k_means_data = np.concatenate([np.array(example["mel_features"]).T for example in tokenized_dataset])
 
@@ -193,14 +196,14 @@ def _get_hf_dataset(
                     reassignment_ratio=0.0,
                     )
 
-            logger.info("training and labelling kmeans model")
             kmeans.fit(k_means_data)
 
-            joblib.dump(kmeans, f"outputs/{name}.kmeans.pkl")
+            joblib.dump(kmeans, f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl")
 
         else:
-            kmeans = joblib.load(f"outputs/{name}.kmeans.pkl")
+            kmeans = joblib.load(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl")
 
+        logger.info("Generating kmeans labels")
         def label_feature(example):
             feats = np.array(example["mel_features"]).T
             labels = kmeans.predict(feats)

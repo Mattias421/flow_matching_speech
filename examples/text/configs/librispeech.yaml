@@ -32,7 +32,7 @@ data:
   supervised: True
 
 training:
-  batch_size: 128
+  batch_size: 240
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 5000000
@@ -53,15 +53,15 @@ eval:
 optim:
   weight_decay: 0.0007
   optimizer: AdamW
-  lr: 0.0007
+  lr: 3e-4
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
-  warmup: 2000
+  warmup: 2500
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false
-  n_iters: 80000
+  n_iters: 100000
   log_lr_every: ${logging.log_lr_every}
   source_soft_update_weight: 0.05
   loss_speech_weight: 0.25
@@ -75,14 +75,14 @@ flow:
   partial_noise_prob: 0
 
 model:
-  hidden_size: 1280
-  cond_dim: 128
-  length: 512
+  hidden_size: 768
+  cond_dim: 768
+  length: 128
   n_blocks: 12
   n_heads: 12
   dropout: 0.1
-  compile: true
-  whisper_dim: 1280
+  compile: false
+  whisper_dim: 768
 
 hydra_dir: /path/to/hydra/dir
 
