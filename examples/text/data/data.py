@@ -137,8 +137,8 @@ def _get_hf_dataset(
 
 
     logger.info("loading tokenizer")
-    processor = WhisperProcessor.from_pretrained("openai/whisper-large-v3")
-    model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v3")
+    processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+    model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
     del model.model.decoder
     model = model.model.encoder.to("cuda").eval()
 
