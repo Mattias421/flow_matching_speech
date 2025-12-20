@@ -446,3 +446,28 @@ class Transformer(nn.Module):
             x = self.output_layer(x=x, c=c)
 
         return x
+
+    @torch.no_grad()
+    def build_audio_cache(self, audio_embeddings: torch.Tensor) -> dict:
+        """Precompute audio projection and per-block cross-attention K/V for fixed audio.
+        Returns a dict with three tensors suitable for replication by solvers:
+          - audio_projected: [B, L, H]
+          - audio_k_all: [B, num_blocks, L, H]
+          - audio_v_all: [B, num_blocks, L, H]
+        For blocks without cross attention, K/V entries are zeros.
+        """
+        B, L, H = audio_embeddings.shape
+        projected_audio = self.audio_proj(audio_embeddings)
+        num_blocks = len(self.blocks)
+        # Derive feature dim from a sample projection
+        feat_dim = projected_audio.size(-1)
+        k_all = projected_audio.new_zeros((B, num_blocks, L, feat_dim))
+        v_all = projected_audio.new_zeros((B, num_blocks, L, feat_dim))
+        for i, blk in enumerate(self.blocks):
+            norm_a = blk.norm_audio(projected_audio)
+            k = blk.k_cross(norm_a)
+            v = blk.v_cross(norm_a)
+            k_all[:, i] = k
+            v_all[:, i] = v
+
+        return {"audio_projected": projected_audio, "audio_k_all": k_all, "audio_v_all": v_all}

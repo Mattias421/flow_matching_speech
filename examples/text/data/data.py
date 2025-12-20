@@ -9,6 +9,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Tuple
 from pathlib import Path
+import joblib
 
 from datasets import DatasetDict, load_dataset, concatenate_datasets, Audio, load_dataset_builder
 from omegaconf import OmegaConf
@@ -148,8 +149,8 @@ def _get_hf_dataset(
         if detokenizer is not None:
             text = _apply_detokenizer(detokenizer)(text)
 
-        normalized_text = [processor.tokenizer.normalize(t) for t in text]
-        text_tokens = processor.tokenizer(normalized_text, return_attention_mask=False)
+        text = [processor.tokenizer.normalize(t) for t in text]
+        text_tokens = processor.tokenizer(text, return_attention_mask=False)
 
         return text_tokens
 
@@ -178,25 +179,35 @@ def _get_hf_dataset(
             load_from_cache_file=True,
         )
 
-        k_means_data = np.concatenate([np.array(example["mel_features"]).T for example in tokenized_dataset])
+        mel_dim = len(tokenized_dataset[0]["mel_features"])
 
-        kmeans = MiniBatchKMeans(
-                n_clusters=64,
-                init="k-means++",
-                batch_size=10000,
-                tol=0.0,
-                max_no_improvement=100,
-                n_init=20,
-                reassignment_ratio=0.0,
-                )
+        if not Path(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl").is_file():
+            logger.info("Training k-means model")
+            # only label training data
+            k_means_data = np.concatenate([np.array(example["mel_features"]).T for example in tokenized_dataset])
 
-        logger.info("training and labelling kmeans model")
-        kmeans.fit(k_means_data)
+            kmeans = MiniBatchKMeans(
+                    n_clusters=64,
+                    init="k-means++",
+                    batch_size=10000,
+                    tol=0.0,
+                    max_no_improvement=100,
+                    n_init=20,
+                    reassignment_ratio=0.0,
+                    )
 
+            kmeans.fit(k_means_data)
+
+            joblib.dump(kmeans, f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl")
+
+        else:
+            kmeans = joblib.load(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl")
+
+        logger.info("Generating kmeans labels")
         def label_feature(example):
             feats = np.array(example["mel_features"]).T
-            labels = kmeans.predict(k_means_data)
-            return {"kmeans_labels":labels}
+            labels = kmeans.predict(feats)
+            return {"input_ids":labels}
 
         tokenized_dataset = tokenized_dataset.map(
             label_feature,
@@ -205,7 +216,6 @@ def _get_hf_dataset(
             num_proc=1,
             load_from_cache_file=True,
         )
-
 
     elif mode == 'text':
         tokenized_dataset = data.map(
@@ -218,15 +228,15 @@ def _get_hf_dataset(
 
     model = model.cpu()
 
-    keep_columns = ["input_ids", "id"]
-
-    if name == "fineweb-edu" or "librispeech" in name:
-        features = tokenized_dataset.features.keys()
-        for k in features:
-            if k not in keep_columns:
-                tokenized_dataset = tokenized_dataset.remove_columns(k)
-    else:
-        tokenized_dataset = tokenized_dataset.remove_columns("text")
+    # keep_columns = ["input_ids", "id"]
+    #
+    # if name == "fineweb-edu" or "librispeech" in name:
+    #     features = tokenized_dataset.features.keys()
+    #     for k in features:
+    #         if k not in keep_columns:
+    #             tokenized_dataset = tokenized_dataset.remove_columns(k)
+    # else:
+    #     tokenized_dataset = tokenized_dataset.remove_columns("text")
 
     tokenized_dataset = tokenized_dataset.with_format("torch")
 
@@ -340,30 +350,42 @@ def get_data_state(config: OmegaConf) -> DataState:
     return DataState(audio=audio, text=text, test_text=test_text, test_audio=test_audio)
 
 
-def collate_fn(batch):
-    utt_ids = [item["id"] for item in batch]
-
-    input_ids = torch.stack([item["input_ids"] for item in batch])
-
-    return {"id": utt_ids, "input_ids": input_ids}
-
-def collate_fn_unpaired(batch):
+def collate_fn_unpaired(batch, length, mode="text"):
 
     utt_ids = [item["id"] for item in batch]
-    input_ids = torch.stack([item["input_ids"] for item in batch])
 
-    return {"input_ids": input_ids, "id":utt_ids}
+    fill_val = -1 if mode == "audio" else 50257
+
+    input_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
+
+    for i, item in enumerate(batch):
+        input_ids[i, :len(item['input_ids'])] = item['input_ids']
+
+    if mode == "audio":
+        input_ids += 1
+
+    collated = {"input_ids": input_ids, "id":utt_ids}
+
+    if mode == "audio":
+        neural_features = torch.stack([i["neural_features"] for i in batch])
+        neural_features = neural_features.squeeze(1)
+        collated["neural_features"] = neural_features
+
+    return collated
 
 
 def get_data_loaders(
     config: OmegaConf,
     data_state: DataState,
 ) -> Tuple[Iterable, Iterable]:
+
+    n_labels = 3000 # max 30s of labels
+
     audio_loader = cycle_loader(
         DataLoader(
             data_state.audio.dataset,
             batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
-            collate_fn=collate_fn_unpaired,
+            collate_fn=lambda x : collate_fn_unpaired(x, n_labels, mode="audio"),
             sampler=data_state.audio.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
@@ -376,7 +398,7 @@ def get_data_loaders(
         DataLoader(
             data_state.text.dataset,
             batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
-            collate_fn=collate_fn_unpaired,
+            collate_fn=lambda x: collate_fn_unpaired(x, config.model.length),
             sampler=data_state.text.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
@@ -389,7 +411,7 @@ def get_data_loaders(
         DataLoader(
             data_state.test_text.dataset,
             batch_size=config.eval.batch_size // config.compute.ngpus,
-            collate_fn=collate_fn,
+            collate_fn=lambda x: collate_fn_unpaired(x, config.model.length),
             num_workers=config.data.num_workers,
             pin_memory=True,
             shuffle=False
@@ -398,7 +420,7 @@ def get_data_loaders(
     valid_loader_text = DataLoader(
             data_state.test_text.dataset,
             batch_size=config.eval.batch_size // config.compute.ngpus,
-            collate_fn=collate_fn,
+            collate_fn=lambda x: collate_fn_unpaired(x, config.model.length),
             num_workers=config.data.num_workers,
             pin_memory=True,
             shuffle=False,
@@ -407,7 +429,7 @@ def get_data_loaders(
     valid_loader_audio = DataLoader(
                 data_state.test_audio.dataset,
                 batch_size=config.eval.batch_size // config.compute.ngpus,
-                collate_fn=collate_fn,
+                collate_fn=lambda x : collate_fn_unpaired(x, n_labels, mode="audio"),
                 num_workers=config.data.num_workers,
                 pin_memory=True,
                 shuffle=False,

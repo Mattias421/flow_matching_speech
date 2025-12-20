@@ -28,11 +28,11 @@ data:
   supervised: True
 
 training:
-  batch_size: 8
+  batch_size: 16
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  cer_freq: 500
+  cer_freq: 300
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
@@ -73,12 +73,12 @@ flow:
 
 model:
   hidden_size: 768
-  cond_dim: 128
+  cond_dim: 768
   length: 128
   n_blocks: 12
   n_heads: 12
   dropout: 0.1
-  compile: true
+  compile: false
   whisper_dim: 768
 
 hydra_dir: /path/to/hydra/dir

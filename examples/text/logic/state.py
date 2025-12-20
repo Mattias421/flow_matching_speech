@@ -17,17 +17,13 @@ from torch.optim import Optimizer
 class TrainState:
     def __init__(
         self,
-        model_tts: nn.Module,
-        model_asr: nn.Module,
-        optimizer_tts: Optimizer,
-        optimizer_asr: Optimizer,
+        model: nn.Module,
+        optimizer: Optimizer,
         step: int,
         data_state: DataState,
     ):
-        self._model_tts = model_tts
-        self._optimizer_tts = optimizer_tts
-        self._model_asr = model_asr
-        self._optimizer_asr = optimizer_asr
+        self._model = model
+        self._optimizer = optimizer
         self._step = step
         self._data_state = data_state
 
@@ -40,28 +36,20 @@ class TrainState:
         self._step = value
 
     @property
-    def optimizer_tts(self) -> Optimizer:
-        return self._optimizer_tts
+    def optimizer(self) -> Optimizer:
+        return self._optimizer
 
     @property
-    def optimizer_asr(self) -> Optimizer:
-        return self._optimizer_asr
+    def model(self) -> nn.Module:
+        return self._model
 
-    @property
-    def model_tts(self) -> nn.Module:
-        return self._model_tts
-
-    @property
-    def model_asr(self) -> nn.Module:
-        return self._model_asr
 
     @property
     def data_state(self) -> DataState:
         return self._data_state
 
     def compile_model(self) -> None:
-        self._model_tts = torch.compile(self._model_tts)
-        self._model_asr = torch.compile(self._model_asr)
+        self._model = torch.compile(self._model)
 
 
     def restore_checkpoint(
@@ -70,10 +58,8 @@ class TrainState:
         if ckpt_dir.exists():
             loaded_state = torch.load(ckpt_dir, map_location=device, weights_only=True)
 
-            self.optimizer_tts.load_state_dict(loaded_state["optimizer_tts"])
-            self.model_tts.module.load_state_dict(loaded_state["model_tts"])
-            self.optimizer_asr.load_state_dict(loaded_state["optimizer_asr"])
-            self.model_asr.module.load_state_dict(loaded_state["model_asr"])
+            self.optimizer.load_state_dict(loaded_state["optimizer"])
+            self.model.module.load_state_dict(loaded_state["model"])
             self.step = loaded_state["step"]
 
             if loaded_state["test_text_sampler"]:
@@ -97,10 +83,8 @@ class TrainState:
 
     def save_checkpoint(self, ckpt_dir: str, rank: int) -> None:
         saved_state = {
-            "optimizer_tts": self.optimizer_tts.state_dict(),
-            "model_tts": self.model_tts.module.state_dict(),
-            "optimizer_asr": self.optimizer_asr.state_dict(),
-            "model_asr": self.model_asr.module.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "model": self.model.module.state_dict(),
             "step": self.step,
         }
 
@@ -126,5 +110,4 @@ class TrainState:
         self.train(training=False)
 
     def train(self, training: bool = True) -> None:
-        self._model_tts.train(mode=training)
-        self._model_asr.train(mode=training)
+        self._model.train(mode=training)

@@ -55,30 +55,21 @@ class UniformSourceDistribution(SourceDistribution):
     def sample_like(self, tensor_like: Tensor) -> Tensor:
         return torch.randint_like(tensor_like, high=self.vocab_size)
 
-
 class ASRSourceDistribution(SourceDistribution):
-    def __init__(self) -> None:
-        # TODO hardcoded vocab
-        self.vocab_size = 2048
-        self.eos_token = 2048
-        self.s2t_token = 2049
-        self.pad_token = 2050
+    def __init__(self, vocab_size: int) -> None:
+        self.vocab_size = vocab_size
 
     @property
     def masked(self) -> bool:
         return False
 
     def sample(self, tensor_size: Tuple[int, ...], device: torch.device) -> Tensor:
-        print(
-            "WARNING: ASRSourceDistribution isn't really supposed to be sampled without x_1"
-        )
         return torch.randint(size=tensor_size, high=self.vocab_size, device=device)
 
-    def sample_like(
-        self,
-        x_1: Tensor,
-    ) -> Tensor:
-        return torch.full_like(x_1, self.pad_token)
+    def sample_like(self, tensor_like: Tensor, prompt_len=4) -> Tensor:
+        rando = torch.randint_like(tensor_like, high=self.vocab_size)
+        tensor_like[:, prompt_len:] = rando[:, prompt_len:]
+        return tensor_like
 
 
 def get_path(scheduler_type: str, exponent: Optional[float] = None) -> ProbPath:
@@ -98,7 +89,7 @@ def get_source_distribution(
     elif source_distribution == "uniform":
         return UniformSourceDistribution(vocab_size=vocab_size)
     elif source_distribution == "asr":
-        return ASRSourceDistribution()
+        return ASRSourceDistribution(vocab_size=vocab_size)
     else:
         raise ValueError(f"{source_distribution} is not supported")
 
