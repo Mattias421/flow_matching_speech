@@ -47,7 +47,6 @@ def optimization_step(
     logger: TrainLogger,
     accum: bool = False,
 ) -> None:
-    loss = loss
     scaler.scale(loss).backward()
 
     if accum:
@@ -117,8 +116,7 @@ def step(
 
     t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
 
-    path_sample = path.sample(t=t, x_0=x_0, x_1=x_1) # swap boundaries for speech
-
+    path_sample = path.sample(t=t, x_0=x_0, x_1=x_1) 
 
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()

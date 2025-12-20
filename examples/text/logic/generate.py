@@ -46,6 +46,8 @@ def generate_transcription(
 ) -> Tensor:
     add_token = 1 if source_distribution.masked else 0
 
+    model = model.eval()
+
     hyp_trn = []
     ref_trn = []
     raw_hypotheses = []
@@ -55,7 +57,7 @@ def generate_transcription(
         assert text_batch['id'] == audio_batch['id']
 
         audio_embeddings = audio_batch["neural_features"].to(device)
-        audio_cache = model.module.build_audio_cache(audio_embeddings)
+        audio_cache = model.build_audio_cache(audio_embeddings)
 
         x_1 = text_batch["input_ids"].to(device)
         x_0 = source_distribution.sample_like(x_1, prompt_len=4)
@@ -119,5 +121,7 @@ def generate_transcription(
         cer = jiwer.cer(raw_references, raw_hypotheses)
     else:
         print("something went wrong with CER calculation")
+
+    model = model.train()
 
     return cer

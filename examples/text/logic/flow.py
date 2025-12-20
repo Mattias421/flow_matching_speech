@@ -68,8 +68,8 @@ class ASRSourceDistribution(SourceDistribution):
 
     def sample_like(self, tensor_like: Tensor, prompt_len=4) -> Tensor:
         rando = torch.randint_like(tensor_like, high=self.vocab_size)
-        tensor_like[:, prompt_len:] = rando[:, prompt_len:]
-        return tensor_like
+        rando[:, :prompt_len] = tensor_like[:, :prompt_len]
+        return rando
 
 
 def get_path(scheduler_type: str, exponent: Optional[float] = None) -> ProbPath:

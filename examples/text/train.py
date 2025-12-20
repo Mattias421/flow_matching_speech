@@ -194,8 +194,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             logger.info("Generating text...", step=state.step)
 
+            model = state.model.module
+
             cer = generate.generate_transcription(
-                model=state.model,
+                model=model,
                 step=state.step,
                 sample_dir=work_dirs.samples,
                 vocab_size=vocab_size,
