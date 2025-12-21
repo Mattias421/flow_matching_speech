@@ -184,7 +184,7 @@ def _get_hf_dataset(
         if not Path(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl").is_file():
             logger.info("Training k-means model")
             # only label training data
-            k_means_data = np.concatenate([np.array(example["mel_features"]).T for example in tokenized_dataset])
+            k_means_data = np.concatenate([np.array(example["mel_features"], mmap_mode="r").T for example in tokenized_dataset])
 
             kmeans = MiniBatchKMeans(
                     n_clusters=64,
