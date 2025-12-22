@@ -59,14 +59,14 @@ def generate_transcription(
         audio_embeddings = audio_batch["neural_features"].to(device)
         audio_cache = model.build_audio_cache(audio_embeddings)
 
-        x_1 = text_batch["input_ids"].to(device)
-        x_0 = source_distribution.sample_like(x_1, prompt_len=4)
+        x_1 = text_batch["input_ids"]
+        x_0 = source_distribution.sample_like(x_1, prompt_len=4).to(device)
 
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
                 x[:, :4] = x_0[:, :4] # reapply prompt
-                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache)[0].float(), -1)
+                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache, predict_speech=False).float(), -1)
                 return probs
 
         wrapped_probability_denoiser = WrappedASRModel(model)
