@@ -111,6 +111,7 @@ def step(
 
     audio_embeddings = audio_batch["neural_features"].to(device)
     x_1 = text_batch["input_ids"].to(device)
+    x_1_speech = audio_batch["input_ids"].to(device)
 
     x_0 = source_distribution.sample_like(x_1, prompt_len=4)
 
@@ -122,22 +123,30 @@ def step(
     ctx = nullcontext() if training else torch.no_grad()
 
     with ctx:
-        logits = state.model(x_t=path_sample.x_t, time=path_sample.t, audio_embeddings=audio_embeddings)
+        logits, logits_speech = state.model(x_t=path_sample.x_t, time=path_sample.t, audio_embeddings=audio_embeddings)
+        logits = logits[:, :128, :] # cut text length to 128 as we don't expect such long sequences
+        x_1 = x_1[:, :128]
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
             loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
+            loss_full_speech = loss_fn(logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1))
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
+            # TODO try KLD at some point
             loss_full = loss_fn(
-                logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
+                    logits=logits, x_1=x_1, x_t=path_sample.x_t[:, :128], t=path_sample.t
+            )
+            loss_full_speech = loss_fn(
+                logits=logits_speech, x_1=x_1_speech, x_t=path_sample.x_t, t=path_sample.t
             )
         else:
             raise ValueError("Invalid loss function")
 
         loss_full = loss_full.reshape(x_1.shape)
+        loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
 
 
-    loss = loss_full.mean()
+    loss = loss_full.mean() + loss_full_speech.mean()
 
     # Optimization step (only if training=true)
     if training:
