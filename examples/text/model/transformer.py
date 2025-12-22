@@ -276,6 +276,12 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
+        self.output_layer_speech = DDitFinalLayer(
+            hidden_size=config.hidden_size,
+            out_channels=2049,
+            cond_dim=config.cond_dim,
+        )
+
     def forward(
         self,
         x_t: Tensor,
@@ -443,9 +449,10 @@ class Transformer(nn.Module):
 
         # Apply final layer with full precision
         with torch.amp.autocast("cuda", dtype=torch.float32):
-            x = self.output_layer(x=x, c=c)
+            x_out = self.output_layer(x=x, c=c)
+            z = self.output_layer_speech(x=x, c=c)
 
-        return x
+        return x_out, z
 
     @torch.no_grad()
     def build_audio_cache(self, audio_embeddings: torch.Tensor) -> dict:

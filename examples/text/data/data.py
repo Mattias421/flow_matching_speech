@@ -95,7 +95,7 @@ def _get_hf_dataset(
 
     # load the model + feature extractor (for pre-processing the audio)
     if codec_name == 'mimi':
-        model = MimiModel.from_pretrained("kyutai/mimi").to("cuda")
+        codec_model = MimiModel.from_pretrained("kyutai/mimi").to("cuda")
         feature_extractor = AutoFeatureExtractor.from_pretrained("kyutai/mimi")
 
         n_vocab = 2048
@@ -108,7 +108,7 @@ def _get_hf_dataset(
             ).to("cuda")
 
             audio_tokens = (
-                model.encode(inputs["input_values"]).audio_codes[:, 0, :].cpu().tolist()
+                codec_model.encode(inputs["input_values"]).audio_codes[:, 0, :].cpu().tolist()
             )  # 0th codebook is semantic
             return audio_tokens
 
@@ -167,6 +167,28 @@ def _get_hf_dataset(
         mel_features = mel_features[0,:,:int(length * mel_features.shape[-1])]
         return {"mel_features":mel_features, "neural_features":neural_features}
 
+    
+    def preprocess_and_tokenize_audio(example: Dict):
+            
+        audio = [a["array"] for a in example["audio"]]
+        lens = [a.shape[0] for a in audio]
+        max_len = max(lens)
+        lens = [l / max_len for l in lens]
+
+        audio_tokens = get_audio_tokens(audio)
+
+        input_ids = []
+
+        for audio, audio_len in zip(audio_tokens, lens):
+            seq = audio[: int(audio_len * len(audio))]
+            assert (block_size) >= len(seq), (
+                "Audio sequence length greater than block size, consider increasing block_size"
+            )
+
+            input_ids.append(seq)
+
+        return {"input_ids": input_ids}
+
 
     logger.info("Tokenizing data")
     if mode == 'audio':
@@ -174,55 +196,15 @@ def _get_hf_dataset(
         tokenized_dataset = data.map(
             encode_audio,
             batched=False,
-            batch_size=1,
+            batch_size=8,
             num_proc=1,
             load_from_cache_file=True,
         )
 
-        mel_dim = len(tokenized_dataset[0]["mel_features"])
-
-        if not Path(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl").is_file():
-            logger.info("Training k-means model")
-            # only label training data
-            k_means_data = np.concatenate([np.array(example["mel_features"]).T for example in tokenized_dataset])
-
-            kmeans = MiniBatchKMeans(
-                    n_clusters=64,
-                    init="k-means++",
-                    batch_size=10000,
-                    tol=0.0,
-                    max_no_improvement=100,
-                    n_init=20,
-                    reassignment_ratio=0.0,
-                    )
-
-            batch_size = 64
-
-            for i in range(0, len(tokenized_dataset), batch_size):
-                # Slice the dataset to get one chunk of embeddings
-                batch_embeddings = tokenized_dataset[i : i + batch_size]["mel_features"]
-
-                # Convert only this small chunk to a numpy array
-                X_batch = np.concatenate([np.array(batch["mel_features"]).T for batch in batch_embeddings])
-
-                # "partial_fit" updates the model using only this chunk
-                kmeans.partial_fit(X_batch)
-
-            joblib.dump(kmeans, f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl")
-
-        else:
-            kmeans = joblib.load(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl")
-
-        logger.info("Generating kmeans labels")
-        def label_feature(example):
-            feats = np.array(example["mel_features"]).T
-            labels = kmeans.predict(feats)
-            return {"input_ids":labels}
-
         tokenized_dataset = tokenized_dataset.map(
-            label_feature,
-            batched=False,
-            batch_size=1,
+            preprocess_and_tokenize_audio,
+            batched=True,
+            batch_size=8,
             num_proc=1,
             load_from_cache_file=True,
         )
@@ -237,6 +219,7 @@ def _get_hf_dataset(
         )
 
     model = model.cpu()
+    codec_model = codec_model.cpu()
 
     # keep_columns = ["input_ids", "id"]
     #
@@ -364,15 +347,12 @@ def collate_fn_unpaired(batch, length, mode="text"):
 
     utt_ids = [item["id"] for item in batch]
 
-    fill_val = -1 if mode == "audio" else 50257
+    fill_val = 50257 if mode == "text" else 2048
 
     input_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
 
     for i, item in enumerate(batch):
         input_ids[i, :len(item['input_ids'])] = item['input_ids']
-
-    if mode == "audio":
-        input_ids += 1
 
     collated = {"input_ids": input_ids, "id":utt_ids}
 
@@ -389,13 +369,11 @@ def get_data_loaders(
     data_state: DataState,
 ) -> Tuple[Iterable, Iterable]:
 
-    n_labels = 3000 # max 30s of labels
-
     audio_loader = cycle_loader(
         DataLoader(
             data_state.audio.dataset,
             batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
-            collate_fn=lambda x : collate_fn_unpaired(x, n_labels, mode="audio"),
+            collate_fn=lambda x : collate_fn_unpaired(x, config.model.length, mode="audio"),
             sampler=data_state.audio.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
@@ -439,7 +417,7 @@ def get_data_loaders(
     valid_loader_audio = DataLoader(
                 data_state.test_audio.dataset,
                 batch_size=config.eval.batch_size // config.compute.ngpus,
-                collate_fn=lambda x : collate_fn_unpaired(x, n_labels, mode="audio"),
+                collate_fn=lambda x : collate_fn_unpaired(x, config.model.length, mode="audio"),
                 num_workers=config.data.num_workers,
                 pin_memory=True,
                 shuffle=False,

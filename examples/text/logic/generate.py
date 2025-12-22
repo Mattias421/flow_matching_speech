@@ -66,7 +66,7 @@ def generate_transcription(
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
                 x[:, :4] = x_0[:, :4] # reapply prompt
-                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache).float(), -1)
+                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache)[0].float(), -1)
                 return probs
 
         wrapped_probability_denoiser = WrappedASRModel(model)
