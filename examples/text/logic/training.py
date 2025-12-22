@@ -110,8 +110,10 @@ def step(
         state.eval()
 
     audio_embeddings = audio_batch["neural_features"].to(device)
+    audio_embeddings_text = audio_embeddings if supervised else torch.zeros_like(audio_embeddings)
+
     x_1 = text_batch["input_ids"].to(device)
-    x_1_speech = audio_batch["input_ids"].to(device)
+    x_1_speech = audio_batch["input_ids"].to(device) # speech tokens
 
     x_0 = source_distribution.sample_like(x_1, prompt_len=4)
 
@@ -119,13 +121,26 @@ def step(
 
     path_sample = path.sample(t=t, x_0=x_0, x_1=x_1) 
 
+    if not supervised:
+        assert audio_batch["id"] != text_batch["id"]
+        # generate hypothesis and sample for speech regularisation
+        with torch.no_grad():
+            x_1_speech_pred, _ = state.model(x_t=x_0, time=torch.zeros_like(path_sample.t), audio_embeddings=audio_embeddings)
+            x_1_speech_pred = torch.softmax(x_1_speech_pred.float(), -1)
+            x_1_speech_pred = categorical(x_1_speech_pred.to(dtype=torch.float64))
+
+            path_sample_speech = path.sample(t=t, x_0=x_0, x_1=x_1_speech_pred) 
+
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()
 
     with ctx:
-        logits, logits_speech = state.model(x_t=path_sample.x_t, time=path_sample.t, audio_embeddings=audio_embeddings)
+        logits, logits_speech = state.model(x_t=path_sample.x_t, time=path_sample.t, audio_embeddings=audio_embeddings_text)
         logits = logits[:, :128, :] # cut text length to 128 as we don't expect such long sequences
         x_1 = x_1[:, :128]
+
+        if not supervised:
+            _, logits_speech = state.model(x_t=path_sample_speech.x_t, time=path_sample_speech.t, audio_embeddings=audio_embeddings)
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
             loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
