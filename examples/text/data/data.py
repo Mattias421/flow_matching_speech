@@ -184,7 +184,7 @@ def _get_hf_dataset(
         if not Path(f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl").is_file():
             logger.info("Training k-means model")
             # only label training data
-            k_means_data = np.concatenate([np.array(example["mel_features"], mmap_mode="r").T for example in tokenized_dataset])
+            k_means_data = np.concatenate([np.array(example["mel_features"]).T for example in tokenized_dataset])
 
             kmeans = MiniBatchKMeans(
                     n_clusters=64,
@@ -196,7 +196,17 @@ def _get_hf_dataset(
                     reassignment_ratio=0.0,
                     )
 
-            kmeans.fit(k_means_data)
+            batch_size = 64
+
+            for i in range(0, len(tokenized_dataset), batch_size):
+                # Slice the dataset to get one chunk of embeddings
+                batch_embeddings = tokenized_dataset[i : i + batch_size]["mel_features"]
+
+                # Convert only this small chunk to a numpy array
+                X_batch = np.concatenate([np.array(batch["mel_features"]).T for batch in batch_embeddings])
+
+                # "partial_fit" updates the model using only this chunk
+                kmeans.partial_fit(X_batch)
 
             joblib.dump(kmeans, f"outputs/{name}.kmeans_64c_{mel_dim}d.pkl")
 
