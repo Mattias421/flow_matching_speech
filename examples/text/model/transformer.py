@@ -294,6 +294,7 @@ class Transformer(nn.Module):
         cfg_strength: float = 1.0,
         audio_drop_prob: float = 0.0,
         use_gradient_checkpointing: bool = False,
+        predict_speech=True,
     ) -> Tensor:
         if audio_embeddings is None:
             assert (
@@ -326,6 +327,7 @@ class Transformer(nn.Module):
                 audio_k_all=audio_k_all,
                 audio_v_all=audio_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
+                predict_speech=predict_speech,
             )
 
         elif cfg_strength == 1.0:
@@ -339,6 +341,7 @@ class Transformer(nn.Module):
                 audio_k_all=audio_k_all,
                 audio_v_all=audio_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
+                predict_speech=predict_speech,
             )
         elif cfg_strength == 0.0:
             # Regular unconditional inference mode
@@ -414,6 +417,7 @@ class Transformer(nn.Module):
         audio_k_all: Tensor | None = None,
         audio_v_all: Tensor | None = None,
         use_gradient_checkpointing: bool = False,
+        predict_speech = True,
     ) -> Tensor:
         # Handle both one-hot and index inputs
         if x_t.dim() == 3:  # one-hot input
@@ -448,11 +452,17 @@ class Transformer(nn.Module):
                     x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c, audio=audio, audio_k=audio_k, audio_v=audio_v)
 
         # Apply final layer with full precision
-        with torch.amp.autocast("cuda", dtype=torch.float32):
-            x_out = self.output_layer(x=x, c=c)
-            z = self.output_layer_speech(x=x, c=c)
+        if predict_speech:
+            with torch.amp.autocast("cuda", dtype=torch.float32):
+                x_out = self.output_layer(x=x, c=c)
+                z = self.output_layer_speech(x=x, c=c)
 
-        return x_out, z
+            return x_out, z
+        else:
+            with torch.amp.autocast("cuda", dtype=torch.float32):
+                x_out = self.output_layer(x=x, c=c)
+            return x_out
+
 
     @torch.no_grad()
     def build_audio_cache(self, audio_embeddings: torch.Tensor) -> dict:
