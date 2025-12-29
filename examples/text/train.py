@@ -109,8 +109,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         (
             loss,
             loss_text,
-            loss_text,
-            loss_speech_no_pad,
+            loss_text_no_pad,
+            loss_speech,
             loss_speech_no_pad,
         ) = training.step(
             loss_fn=loss_fn,
