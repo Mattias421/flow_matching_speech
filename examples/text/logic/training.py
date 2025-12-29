@@ -119,7 +119,7 @@ def step(
 
     t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
 
-    path_sample = path.sample(t=t, x_0=x_0, x_1=x_1) 
+    path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
 
     if not supervised:
         assert audio_batch["id"] != text_batch["id"]
@@ -129,7 +129,7 @@ def step(
             x_1_speech_pred = torch.softmax(x_1_speech_pred.float(), -1)
             x_1_speech_pred = categorical(x_1_speech_pred.to(dtype=torch.float64))
 
-            path_sample_speech = path.sample(t=t, x_0=x_0, x_1=x_1_speech_pred) 
+            path_sample_speech = path.sample(t=t, x_0=x_0, x_1=x_1_speech_pred)
 
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()
@@ -148,6 +148,7 @@ def step(
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             # TODO try KLD at some point
+            print("KLD loss not supported for now")
             loss_full = loss_fn(
                     logits=logits, x_1=x_1, x_t=path_sample.x_t[:, :128], t=path_sample.t
             )
@@ -177,5 +178,8 @@ def step(
 
     return (
         loss.detach(),
+        loss_full.mean(),
         loss_full[x_1 != pad_id].mean(),
+        loss_full_speech.mean(),
+        loss_full_speech[x_1_speech != 2048].mean(), # TODO undo hard coding
     )

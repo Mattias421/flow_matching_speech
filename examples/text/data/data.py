@@ -196,7 +196,7 @@ def _get_hf_dataset(
         tokenized_dataset = data.map(
             encode_audio,
             batched=False,
-            batch_size=8,
+            batch_size=4,
             num_proc=1,
             load_from_cache_file=True,
         )
@@ -204,7 +204,7 @@ def _get_hf_dataset(
         tokenized_dataset = tokenized_dataset.map(
             preprocess_and_tokenize_audio,
             batched=True,
-            batch_size=8,
+            batch_size=4,
             num_proc=1,
             load_from_cache_file=True,
         )

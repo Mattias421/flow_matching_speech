@@ -111,7 +111,7 @@ def generate_transcription(
 
         hyp_file_name.parents[0].mkdir(exist_ok=True, parents=True)
 
-        with open(hyp_file_name, "w") as hyp_file, open(ref_file_name, "w") as ref_file:
+        with open(hyp_file_name, "w", encoding='utf-8') as hyp_file, open(ref_file_name, "w", encoding='utf-8') as ref_file:
             for hyp, ref in zip(hyp_trn, ref_trn):
                 hyp_file.write(hyp)
                 ref_file.write(ref)

@@ -108,7 +108,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
         (
             loss,
-            loss_no_pad,
+            loss_text,
+            loss_text,
+            loss_speech_no_pad,
+            loss_speech_no_pad,
         ) = training.step(
             loss_fn=loss_fn,
             path=path,
@@ -129,7 +132,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         train_loss_values.append(
             [
                 loss,
-                loss_no_pad,
+                loss_text,
+                loss_text_no_pad,
+                loss_speech,
+                loss_speech_no_pad,
             ]
         )
 
@@ -143,7 +149,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             for loss_name, loss_value in zip(
                 [
                     "loss",
-                    "loss_no_pad",
+                    "loss_text",
+                    "loss_text_no_pad",
+                    "loss_speech",
+                    "loss_speech_no_pad",
                 ],
                 agg_train_loss_values,
             ):
@@ -165,7 +174,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             (
                 eval_loss,
+                _,
                 eval_loss_no_pad,
+                _,
+                _,
             ) = training.step(
                 loss_fn=loss_fn,
                 path=path,
