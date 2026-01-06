@@ -127,6 +127,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             time_epsilon=time_epsilon,
             pad_id=pad_id,
             supervised=cfg.data.supervised,
+            uncond_warmup=cfg.training.uncond_warmup,
         )
 
         train_loss_values.append(
@@ -193,6 +194,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 time_epsilon=time_epsilon,
                 pad_id=pad_id,
                 supervised=cfg.data.supervised,
+                uncond_warmup=cfg.training.uncond_warmup,
             )
 
             dist.all_reduce(eval_loss, dist.ReduceOp.AVG)

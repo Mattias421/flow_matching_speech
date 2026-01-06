@@ -39,7 +39,7 @@ training:
   cer_freq: 5000
   seed: 42
   partial_loss_weight: 1
-  uncond_warmup: 5000
+  uncond_warmup: 10000
   pad_weight: 1.0
 
 eval:
