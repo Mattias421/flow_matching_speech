@@ -175,7 +175,7 @@ def _get_hf_dataset(
 
         for audio, audio_len in zip(audio_tokens, lens):
             seq = audio[: int(audio_len * len(audio))]
-            assert (block_size) >= len(seq), (
+            assert (block_size*4) >= len(seq), (
                 "Audio sequence length greater than block size, consider increasing block_size"
             )
 
@@ -342,6 +342,7 @@ def collate_fn_unpaired(batch, length, mode="text"):
     utt_ids = [item["id"] for item in batch]
 
     fill_val = 50257 if mode == "text" else 2048
+    length = length if mode == "text" else length * 4
 
     input_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
 

@@ -25,7 +25,7 @@ data:
   debug: false
   codec_name: mimi # [focalcodec, mimi]
   train_percent: 50
-  supervised: False
+  supervised: True
 
 training:
   batch_size: 32
@@ -74,7 +74,7 @@ flow:
 model:
   hidden_size: 768
   cond_dim: 128
-  length: 512
+  length: 128
   n_blocks: 2
   n_heads: 12
   dropout: 0.0

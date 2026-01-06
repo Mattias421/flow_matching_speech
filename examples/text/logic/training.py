@@ -136,8 +136,8 @@ def step(
 
     with ctx:
         logits, logits_speech = state.model(x_t=path_sample.x_t, time=path_sample.t, audio_embeddings=audio_embeddings_text)
-        logits = logits[:, :128, :] # cut text length to 128 as we don't expect such long sequences
-        x_1 = x_1[:, :128]
+        # logits = logits[:, :128, :] # cut text length to 128 as we don't expect such long sequences
+        # x_1 = x_1[:, :128]
 
         if not supervised:
             _, logits_speech = state.model(x_t=path_sample_speech.x_t, time=path_sample_speech.t, audio_embeddings=audio_embeddings)

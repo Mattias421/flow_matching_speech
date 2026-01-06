@@ -276,6 +276,12 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
+        self.text_tok_proj = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size * 4),
+            nn.GELU(),
+            nn.Linear(config.hidden_size * 4, config.hidden_size * 4),
+        )
+
         self.output_layer_speech = DDitFinalLayer(
             hidden_size=config.hidden_size,
             out_channels=2049,
@@ -455,6 +461,8 @@ class Transformer(nn.Module):
         if predict_speech:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x, c=c)
+                x = self.text_tok_proj(x)
+                x = x.reshape(x.shape[0],-1,self.config.hidden_size)
                 z = self.output_layer_speech(x=x, c=c)
 
             return x_out, z
