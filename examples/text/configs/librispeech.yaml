@@ -29,7 +29,7 @@ data:
   debug: false
   codec_name: mimi # [focalcodec, mimi]
   train_percent: 100
-  supervised: False
+  supervised: True
 
 training:
   batch_size: 64
@@ -53,7 +53,7 @@ eval:
 optim:
   weight_decay: 0.0007
   optimizer: AdamW
-  lr: 3e-4
+  lr: 4e-4
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
@@ -78,7 +78,7 @@ model:
   hidden_size: 768
   cond_dim: 128
   length: 512
-  n_blocks: 12
+  n_blocks: 4
   n_heads: 12
   dropout: 0.1
   compile: false
@@ -118,7 +118,7 @@ hydra:
     n_jobs: 12
     # max_failure_rate: 0.5
     params:
-        optim.lr: tag(log, interval(0.0004, 0.002))
-        optim.warmup: choice(500,1000,1500,2000,2500,3000,3500,4000)
+        optim.lr: tag(log, interval(0.0001, 0.0005))
+        optim.warmup: choice(250,500,1000,1500,2000)
 
 

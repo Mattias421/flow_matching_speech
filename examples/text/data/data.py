@@ -52,13 +52,8 @@ def _get_hf_dataset(
         )[mode]
     elif name == "librispeech":
         if split == 'train':
-            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir)
-            data = concatenate_datasets(
-                [
-                    data["train.clean.100"],
-                    data["train.clean.360"],
-                ]
-            )
+            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split=["train.clean.100","train.clean.360"])
+            data = concatenate_datasets(data)
         elif split == "validation":
             data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split="validation.clean")
         else:
@@ -164,8 +159,7 @@ def _get_hf_dataset(
         input_features = input_features.cpu()
         neural_features = neural_features.last_hidden_state.cpu()
 
-        mel_features = mel_features[0,:,:int(length * mel_features.shape[-1])]
-        return {"mel_features":mel_features, "neural_features":neural_features}
+        return {"neural_features":neural_features}
 
 
     def preprocess_and_tokenize_audio(example: Dict):
