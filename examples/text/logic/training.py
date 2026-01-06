@@ -162,7 +162,11 @@ def step(
         loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
 
 
-    loss_speech_weight = (state.step / 5000) if state.step < 5000 else 1 # TODO undo hardcoding
+    if state.step < 5000:
+        loss_speech_weight = 0
+    elif state.step >= 5000:
+        loss_speech_weight = (state.step / 10000) if state.step < 10000 else 1 # TODO undo hardcoding
+
     loss = loss_full.mean() + loss_full_speech.mean() * loss_speech_weight
 
     # Optimization step (only if training=true)
