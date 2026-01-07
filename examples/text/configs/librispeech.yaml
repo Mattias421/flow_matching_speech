@@ -81,7 +81,7 @@ model:
   n_blocks: 4
   n_heads: 12
   dropout: 0.1
-  compile: false
+  compile: True
   whisper_dim: 768
 
 hydra_dir: /path/to/hydra/dir

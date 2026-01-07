@@ -126,7 +126,7 @@ def step(
         assert audio_batch["id"] != text_batch["id"]
         # generate hypothesis and sample for speech regularisation
         with torch.no_grad():
-            x_1_speech_pred, _ = state.model(x_t=x_0, time=torch.zeros_like(path_sample.t), audio_embeddings=audio_embeddings)
+            x_1_speech_pred = state.model(x_t=x_0, time=torch.zeros_like(path_sample.t), audio_embeddings=audio_embeddings, predict_speech=False)
             x_1_speech_pred = torch.softmax(x_1_speech_pred.float(), -1)
             x_1_speech_pred = categorical(x_1_speech_pred.to(dtype=torch.float64))
 
@@ -137,8 +137,6 @@ def step(
 
     with ctx:
         logits, logits_speech = state.model(x_t=path_sample.x_t, time=path_sample.t, audio_embeddings=audio_embeddings_text)
-        # logits = logits[:, :128, :] # cut text length to 128 as we don't expect such long sequences
-        # x_1 = x_1[:, :128]
 
         if not supervised:
             _, logits_speech = state.model(x_t=path_sample_speech.x_t, time=path_sample_speech.t, audio_embeddings=audio_embeddings)
