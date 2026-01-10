@@ -103,6 +103,7 @@ def step(
     pad_id: int = 0,
     supervised: bool = False,
     uncond_warmup: int = 10000,
+    codebook_prob: float = 0.0,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -134,7 +135,7 @@ def step(
 
     with ctx:
 
-        logits, logits_speech = state.model(x_t=path_sample.x_t, x_t_speech=path_sample_speech.x_t, time=path_sample.t, audio_embeddings=audio_embeddings)
+        logits, logits_speech = state.model(x_t=path_sample.x_t, x_t_speech=path_sample_speech.x_t, time=path_sample.t, audio_embeddings=audio_embeddings, codebook_prob=codebook_prob)
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
             loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
@@ -161,7 +162,7 @@ def step(
     else:
         loss_speech_weight = ((state.step - (uncond_warmup // 2)) / (uncond_warmup // 2)) if state.step < uncond_warmup else 1 # TODO undo hardcoding
 
-    loss = loss_full.mean() + loss_full_speech.mean() * loss_speech_weight 
+    loss = loss_full.mean()  + loss_full_speech.mean() * loss_speech_weight 
 
     # Optimization step (only if training=true)
     if training:

@@ -133,6 +133,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             pad_id=pad_id,
             supervised=cfg.data.supervised,
             uncond_warmup=cfg.training.uncond_warmup,
+            codebook_prob=cfg.training.codebook_prob,
         )
 
         train_loss_values.append(

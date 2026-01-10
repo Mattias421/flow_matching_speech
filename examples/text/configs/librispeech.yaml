@@ -41,6 +41,7 @@ training:
   partial_loss_weight: 1
   uncond_warmup: 10000
   pad_weight: 1.0
+  codebook_prob: 0.1
 
 eval:
   batch_size: 32
@@ -78,7 +79,7 @@ model:
   hidden_size: 768
   cond_dim: 128
   length: 128
-  n_blocks: 4
+  n_blocks: 2
   n_heads: 12
   dropout: 0.1
   compile: True

@@ -24,6 +24,7 @@ from omegaconf.dictconfig import DictConfig
 from torch import Tensor, nn
 
 from . import rotary
+from .gumbel_vector_quantizer import GumbelVectorQuantizer
 
 
 def bias_dropout_add_scale(x: Tensor, scale: Tensor, residual: Tensor | None, prob: float, training: bool) -> Tensor:
@@ -280,6 +281,8 @@ class Transformer(nn.Module):
             ]
         )
 
+        self.quantizer =  GumbelVectorQuantizer(dim=config.hidden_size, num_vars=300, vq_dim=config.hidden_size, time_first=True, combine_groups=False, groups=2, temp=(2,0.5,0.999995))
+
         self.output_layer = DDitFinalLayer(
             hidden_size=config.hidden_size,
             out_channels=vocab_size + add_token,
@@ -313,6 +316,7 @@ class Transformer(nn.Module):
         audio_drop_prob: float = 0.0,
         use_gradient_checkpointing: bool = False,
         x_t_speech: Tensor = None,
+        codebook_prob: float = 0.0,
     ) -> Tensor:
         # if audio_embeddings is None:
         #     assert (
@@ -346,6 +350,7 @@ class Transformer(nn.Module):
                 audio_v_all=audio_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
                 x_t_speech=x_t_speech,
+                codebook_prob=codebook_prob,
             )
 
         elif cfg_strength == 1.0:
@@ -360,6 +365,7 @@ class Transformer(nn.Module):
                 audio_v_all=audio_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
                 x_t_speech=x_t_speech,
+                codebook_prob=codebook_prob,
             )
         elif cfg_strength == 0.0:
             # Regular unconditional inference mode
@@ -373,6 +379,7 @@ class Transformer(nn.Module):
                 audio_k_all=audio_k_all,
                 audio_v_all=audio_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
+                codebook_prob=codebook_prob,
             )
 
         else:
@@ -414,6 +421,7 @@ class Transformer(nn.Module):
                 audio_k_all=double_k_all,
                 audio_v_all=double_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
+                codebook_prob=codebook_prob,
             )
 
             # Split results
@@ -436,6 +444,7 @@ class Transformer(nn.Module):
         audio_v_all: Tensor | None = None,
         use_gradient_checkpointing: bool = False,
         x_t_speech: Tensor = None,
+        codebook_prob: float = 0.0,
     ) -> Tensor:
         batch_size = x_t.shape[0]
 
@@ -475,6 +484,20 @@ class Transformer(nn.Module):
                     audio_k = audio_k_all[:, i] if audio_k_all is not None else None
                     audio_v = audio_v_all[:, i] if audio_v_all is not None else None
                     x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c, audio=audio, audio_k=audio_k, audio_v=audio_v)
+
+        if codebook_prob > 0.0:
+            q = self.quantizer(x)
+
+            # q["x"]: B x T x C
+            # Sample indexs according to the codebook prob
+            random_idx = torch.randperm(q["x"].size(1))[:int(q["x"].size(1) * codebook_prob)]
+            # Make weight for q
+            q_w = q["x"].new_zeros(q["x"].size(1))
+            q_w[random_idx] = 1.0
+            # Combine quantized codes and encoder output
+            x = (
+                q_w.view(-1, 1) * q["x"] + (- q_w + 1).view(-1, 1) * x
+            )
 
         # Apply final layer with full precision
         if x_t_speech is not None:
