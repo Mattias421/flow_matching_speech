@@ -253,6 +253,16 @@ class Transformer(nn.Module):
             nn.Linear(config.hidden_size, config.hidden_size),
         )
 
+        # TODO some experimentation of architecture available here e.g. could do subsample stacking between layers
+        self.audio_tok_proj = nn.Sequential(
+            nn.Embedding(2049, config.hidden_size // 4), # TODO softcode
+            nn.Flatten(),
+            nn.Unflatten(1,(-1,config.hidden_size)),
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.LayerNorm(config.hidden_size),
+        )
+
+
         self.rotary_emb = rotary.Rotary(dim=config.hidden_size // config.n_heads)
 
         # Preserve embeddings
@@ -276,15 +286,17 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
+        # TODO could downsample speech by 2, and upsample text tok by 2, making even tradeoff between the two
         self.text_tok_proj = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size * 4),
-            nn.GELU(),
-            nn.Linear(config.hidden_size * 4, config.hidden_size * 4),
+            nn.Flatten(),
+            nn.Unflatten(1,(-1,config.hidden_size // 4)),
+            nn.Linear(config.hidden_size // 4, config.hidden_size // 4),
+            nn.LayerNorm(config.hidden_size // 4),
         )
 
         self.output_layer_speech = DDitFinalLayer(
-            hidden_size=config.hidden_size,
-            out_channels=2049,
+            hidden_size=config.hidden_size // 4,
+            out_channels=2049, # TODO softcode
             cond_dim=config.cond_dim,
         )
 
@@ -300,22 +312,22 @@ class Transformer(nn.Module):
         cfg_strength: float = 1.0,
         audio_drop_prob: float = 0.0,
         use_gradient_checkpointing: bool = False,
-        predict_speech=True,
+        x_t_speech: Tensor = None,
     ) -> Tensor:
-        if audio_embeddings is None:
-            assert (
-                audio_projected is not None and audio_k_all is not None and audio_v_all is not None
-            ), "audio_embeddings, audio_projected, audio_k_all, and audio_v_all must be provided if audio_embeddings is None"
-            assert not self.training, "audio_embeddings must be provided in training mode"
-            if audio_projected.shape[0] != x_t.shape[0]:
-                raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_projected={audio_projected.shape[0]}")
-            if audio_k_all.shape[0] != x_t.shape[0]:
-                raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_k_all={audio_k_all.shape[0]}")
-            if audio_v_all.shape[0] != x_t.shape[0]:
-                raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_v_all={audio_v_all.shape[0]}")
-
-        elif audio_embeddings.shape[0] != x_t.shape[0]:
-            raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_embeddings={audio_embeddings.shape[0]}")
+        # if audio_embeddings is None:
+        #     assert (
+        #         audio_projected is not None and audio_k_all is not None and audio_v_all is not None
+        #     ), "audio_embeddings, audio_projected, audio_k_all, and audio_v_all must be provided if audio_embeddings is None"
+        #     assert not self.training, "audio_embeddings must be provided in training mode"
+        #     if audio_projected.shape[0] != x_t.shape[0]:
+        #         raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_projected={audio_projected.shape[0]}")
+        #     if audio_k_all.shape[0] != x_t.shape[0]:
+        #         raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_k_all={audio_k_all.shape[0]}")
+        #     if audio_v_all.shape[0] != x_t.shape[0]:
+        #         raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_v_all={audio_v_all.shape[0]}")
+        #
+        # elif audio_embeddings.shape[0] != x_t.shape[0]:
+        #     raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_embeddings={audio_embeddings.shape[0]}")
 
         if self.training:
             # Training mode with audio dropout
@@ -333,7 +345,7 @@ class Transformer(nn.Module):
                 audio_k_all=audio_k_all,
                 audio_v_all=audio_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
-                predict_speech=predict_speech,
+                x_t_speech=x_t_speech,
             )
 
         elif cfg_strength == 1.0:
@@ -347,7 +359,7 @@ class Transformer(nn.Module):
                 audio_k_all=audio_k_all,
                 audio_v_all=audio_v_all,
                 use_gradient_checkpointing=use_gradient_checkpointing,
-                predict_speech=predict_speech,
+                x_t_speech=x_t_speech,
             )
         elif cfg_strength == 0.0:
             # Regular unconditional inference mode
@@ -423,8 +435,10 @@ class Transformer(nn.Module):
         audio_k_all: Tensor | None = None,
         audio_v_all: Tensor | None = None,
         use_gradient_checkpointing: bool = False,
-        predict_speech = True,
+        x_t_speech: Tensor = None,
     ) -> Tensor:
+        batch_size = x_t.shape[0]
+
         # Handle both one-hot and index inputs
         if x_t.dim() == 3:  # one-hot input
             # Convert one-hot to embeddings directly
@@ -443,8 +457,13 @@ class Transformer(nn.Module):
         else:
             audio = self.audio_proj(audio_embeddings)
 
+
         # Get time embeddings
         c = F.silu(self.time_embedding(time=time))
+        if x_t_speech is not None:
+            x_speech = self.audio_tok_proj(x_t_speech)
+            x = torch.cat([x,x_speech])
+            c = torch.cat([c,c])
 
         rotary_cos_sin = self.rotary_emb(x=x)
 
@@ -458,12 +477,11 @@ class Transformer(nn.Module):
                     x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c, audio=audio, audio_k=audio_k, audio_v=audio_v)
 
         # Apply final layer with full precision
-        if predict_speech:
+        if x_t_speech is not None:
             with torch.amp.autocast("cuda", dtype=torch.float32):
-                x_out = self.output_layer(x=x, c=c)
-                x = self.text_tok_proj(x)
-                x = x.reshape(x.shape[0],-1,self.config.hidden_size)
-                z = self.output_layer_speech(x=x, c=c)
+                x_out = self.output_layer(x=x[:batch_size], c=c[:batch_size])
+                x = self.text_tok_proj(x[batch_size:])
+                z = self.output_layer_speech(x=x, c=c[batch_size:])
 
             return x_out, z
         else:

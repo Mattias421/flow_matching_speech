@@ -37,6 +37,7 @@ def main(args: argparse.Namespace):
             batch_size=args.batch_size // args.ngpus,
             split=args.split,
             sampling_steps=args.sampling_steps,
+            cfg_strength=args.cfg_strength,
             transcribe=args.transcribe,
             eval_elbo=args.eval_elbo,
             data_name=args.data_name,
@@ -78,6 +79,7 @@ if __name__ == "__main__":
 
     # Perplexity parameters
     parser.add_argument("--sampling_steps", type=int, default=1024)
+    parser.add_argument("--cfg_strength", type=float, default=1.0)
 
     # ELBO parameters
     parser.add_argument("--data_name", type=str, default="librispeech")

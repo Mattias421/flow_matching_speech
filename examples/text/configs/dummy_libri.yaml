@@ -41,11 +41,12 @@ training:
 
 eval:
   batch_size: 8
-  sample_batch_size: 16
+  sample_batch_size: 8
   perplexity: True
   perplexity_batch_size: 16
   n_gen_iter: 8
   kenlm_path: /path/to/kenlm
+  cfg_strength: 1.0
 
 optim:
   weight_decay: 0.03
@@ -54,7 +55,7 @@ optim:
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
-  warmup: 200
+  warmup: 500
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false

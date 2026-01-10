@@ -17,6 +17,7 @@ from logic import evaluate, flow, generate
 
 from torch.utils.data import DataLoader
 from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
+from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, WhisperProcessor
 from utils import checkpointing
 
 
@@ -27,6 +28,7 @@ def run_eval(
     batch_size: int,
     split: str,
     sampling_steps: int,
+    cfg_strength: float,
     transcribe: bool,
     eval_elbo: bool,
     data_name: str,
@@ -48,11 +50,11 @@ def run_eval(
     elif cfg.data.codec_name == 'focalcodec':
         vocab_size_codec = 8192
 
-    vocab_size = vocab_size_codec + 3 # eos, s2t, pad
-    tokenizer = PreTrainedTokenizerFast(
-        tokenizer_file=f"outputs/tokenizer-librispeech-{vocab_size_codec}.json"
-    )
-    pad_id = tokenizer.encode("[PAD]")[0]
+    processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+    tokenizer = processor.tokenizer
+
+    pad_id = tokenizer.encode("<|endoftranscript|>")[0]
+    vocab_size = len(tokenizer)
 
 
     # Flow matching
@@ -83,33 +85,58 @@ def run_eval(
     if transcribe:
         sample_dir = work_dirs.samples / split
 
-        data_state = data._get_dataset(
+        data_state_audio = data._get_dataset(
             name=data_name,
-            mode=split,
+            mode='audio',
+            split='validation',
             cache_dir=cfg.data.cache_dir,
             block_size=cfg.model.length,
             num_proc=cfg.data.num_workers,
             batch_size=batch_size,
             ngpus=world_size,
             codec_name=cfg.data.codec_name,
+            supervised=True,
         )
 
-        dataloader = DataLoader(
-            data_state.dataset,
+        data_state_text = data._get_dataset(
+            name=data_name,
+            mode='text',
+            split='validation',
+            cache_dir=cfg.data.cache_dir,
+            block_size=cfg.model.length,
+            num_proc=cfg.data.num_workers,
             batch_size=batch_size,
-            collate_fn=data.collate_fn,
-            sampler=data_state.sampler,
+            ngpus=world_size,
+            codec_name=cfg.data.codec_name,
+            supervised=True,
+        )
+
+        dataloader_audio = DataLoader(
+            data_state_audio.dataset,
+            batch_size=batch_size,
+            collate_fn=lambda x : data.collate_fn_unpaired(x, cfg.model.length, mode="audio"),
+            sampler=data_state_audio.sampler,
             num_workers=cfg.data.num_workers,
             pin_memory=True,
-            shuffle=(data_state.sampler is None),
+            shuffle=False,
         )
 
+        dataloader_text = DataLoader(
+            data_state_text.dataset,
+            batch_size=batch_size,
+            collate_fn=lambda x: data.collate_fn_unpaired(x, cfg.model.length),
+            sampler=data_state_text.sampler,
+            num_workers=cfg.data.num_workers,
+            pin_memory=True,
+            shuffle=False,
+            )
+
         generate.generate_transcription(
-            model=model,
+            model=model.module,
             step=sampling_steps,  # results stored in iter_{sampling_steps}
             sample_dir=sample_dir,
             vocab_size=vocab_size,
-            dataloader=dataloader,
+            dataloader=zip(dataloader_text,dataloader_audio),
             tokenizer=tokenizer,
             rank=rank,
             device=device,
@@ -119,6 +146,8 @@ def run_eval(
             sequence_length=cfg.model.length,
             sampling_steps=sampling_steps,
             time_epsilon=time_epsilon,
+            cfg_strength=cfg_strength,
+            pad_id=pad_id,
         )
 
     if eval_elbo:
@@ -187,6 +216,7 @@ def run_mp_eval(
     port: int,
     split: str,
     transcribe: bool,
+    cfg_strength: float,
 ) -> None:
     try:
         setup(rank=rank, world_size=world_size, port=port)
@@ -201,6 +231,7 @@ def run_mp_eval(
             split=split,
             world_size=world_size,
             transcribe=transcribe,
+            cfg_strength=cfg_strength,
         )
     finally:
         cleanup()

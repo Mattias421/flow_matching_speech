@@ -43,6 +43,7 @@ def generate_transcription(
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
+    cfg_strength: float = 1.0,
 ) -> Tensor:
     add_token = 1 if source_distribution.masked else 0
 
@@ -60,13 +61,13 @@ def generate_transcription(
         audio_cache = model.build_audio_cache(audio_embeddings)
 
         x_1 = text_batch["input_ids"]
-        x_0 = source_distribution.sample_like(x_1, prompt_len=4).to(device)
+        x_0 = source_distribution.sample_like(x_1, prompt_len=2).to(device)
 
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
-                x[:, :4] = x_0[:, :4] # reapply prompt
-                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache, predict_speech=False).float(), -1)
+                x[:, :2] = x_0[:, :2] # reapply prompt
+                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache, cfg_strength=cfg_strength).float(), -1)
                 return probs
 
         wrapped_probability_denoiser = WrappedASRModel(model)
@@ -115,6 +116,9 @@ def generate_transcription(
             for hyp, ref in zip(hyp_trn, ref_trn):
                 hyp_file.write(hyp)
                 ref_file.write(ref)
+
+    for hyp in hyp_trn[:10]:
+        print(hyp)
 
     cer = None
     if raw_references and raw_hypotheses:

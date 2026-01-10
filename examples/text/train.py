@@ -46,6 +46,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
     )
 
+    source_distribution_speech = flow.get_source_distribution(
+        source_distribution=cfg.flow.source_distribution, vocab_size=2049 # TODO softcode
+    )
+
     # Model initialization
     model = Transformer(
         config=cfg.model, vocab_size=vocab_size, masked=source_distribution.masked
@@ -122,6 +126,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             optim_params=cfg.optim,
             device=device,
             source_distribution=source_distribution,
+            source_distribution_speech=source_distribution_speech,
             logger=logger,
             training=True,
             time_epsilon=time_epsilon,
@@ -189,6 +194,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 optim_params=cfg.optim,
                 device=device,
                 source_distribution=source_distribution,
+                source_distribution_speech=source_distribution_speech,
                 logger=logger,
                 training=False,
                 time_epsilon=time_epsilon,
@@ -226,6 +232,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 sampling_steps=cfg.flow.sampling_steps,
                 time_epsilon=time_epsilon,
                 pad_id=pad_id,
+                cfg_strength=cfg.eval.cfg_strength,
             )
 
             logger.log_metric(
