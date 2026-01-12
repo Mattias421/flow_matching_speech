@@ -19,7 +19,7 @@ from model import Transformer
 from omegaconf import OmegaConf
 from torch import optim
 from torch.nn.parallel import DistributedDataParallel as DDP
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, WhisperProcessor
+from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, WhisperProcessor, SpeechT5Tokenizer
 from utils import checkpointing, logging
 
 
@@ -37,9 +37,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     logger.log_devices(device=device, logger=logger)
 
     processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-    tokenizer = processor.tokenizer
-
-    pad_id = tokenizer.encode("<|endoftranscript|>")[0]
+    if cfg.data.text_tokenizer == 'speecht5':
+        tokenizer = SpeechT5Tokenizer.from_pretrained("microsoft/speecht5_tts")
+        pad_id = tokenizer.encode("<pad>")[0]
+    else:
+        tokenizer = processor.tokenizer
+        pad_id = tokenizer.encode("<|endoftranscript|>")[0]
     vocab_size = len(tokenizer)
 
     source_distribution = flow.get_source_distribution(
@@ -224,6 +227,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 vocab_size=vocab_size,
                 dataloader=zip(eval_iter_text, eval_iter_audio),
                 tokenizer=tokenizer,
+                normalize=processor.tokenizer.normalize,
                 rank=rank,
                 device=device,
                 path=path,

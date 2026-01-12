@@ -66,10 +66,8 @@ class ASRSourceDistribution(SourceDistribution):
     def sample(self, tensor_size: Tuple[int, ...], device: torch.device) -> Tensor:
         return torch.randint(size=tensor_size, high=self.vocab_size, device=device)
 
-    def sample_like(self, tensor_like: Tensor, prompt_len=4) -> Tensor:
+    def sample_like(self, tensor_like: Tensor) -> Tensor:
         rando = torch.randint_like(tensor_like, high=self.vocab_size)
-        if prompt_len > 0:
-            rando[:, :prompt_len] = tensor_like[:, :prompt_len]
         return rando
 
 

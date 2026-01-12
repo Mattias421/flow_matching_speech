@@ -32,6 +32,7 @@ def generate_transcription(
     vocab_size: int,
     dataloader,
     tokenizer: PreTrainedTokenizer,
+    normalize,
     rank: int,
     device: torch.device,
     path: ProbPath,
@@ -61,12 +62,11 @@ def generate_transcription(
         audio_cache = model.build_audio_cache(audio_embeddings)
 
         x_1 = text_batch["input_ids"]
-        x_0 = source_distribution.sample_like(x_1, prompt_len=2).to(device)
+        x_0 = source_distribution.sample_like(x_1).to(device)
 
         class WrappedASRModel(ModelWrapper):
             def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
                 # Note: logit's precision is important.
-                x[:, :2] = x_0[:, :2] # reapply prompt
                 probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache, cfg_strength=cfg_strength).float(), -1)
                 return probs
 
@@ -95,13 +95,13 @@ def generate_transcription(
             text_sample, text_ref, text_batch["id"]
         ):
             text = tokenizer.decode(hyp_text_ids, skip_special_tokens=True)
-            text = tokenizer.normalize(text)
+            text = normalize(text)
             raw_hypotheses.append(text)
             trn_hyp = text + f" ({utt_id})\n"
             hyp_trn.append(trn_hyp)
 
             text = tokenizer.decode(ref_text_ids, skip_special_tokens=True)
-            text = tokenizer.normalize(text)
+            text = normalize(text)
             raw_references.append(text)
             trn_ref = text + f" ({utt_id})\n"
             ref_trn.append(trn_ref)

@@ -26,19 +26,20 @@ data:
   codec_name: mimi # [focalcodec, mimi]
   train_percent: 50
   supervised: True
+  text_tokenizer: speecht5
 
 training:
-  batch_size: 32
+  batch_size: 16
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  cer_freq: 500
+  cer_freq: 1000
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
   uncond_warmup: 500
   pad_weight: 1.0
-  codebook_prob: 0.1
+  codebook_prob: 0.0
 
 eval:
   batch_size: 8
@@ -60,7 +61,7 @@ optim:
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false
-  n_iters: 10000
+  n_iters: 20000
   log_lr_every: ${logging.log_lr_every}
   source_soft_update_weight: 1.0
   loss_speech_weight: 0.25
@@ -76,12 +77,13 @@ flow:
 model:
   hidden_size: 768
   cond_dim: 128
-  length: 128
+  length: 512
   n_blocks: 2
   n_heads: 12
   dropout: 0.0
   compile: false
   whisper_dim: 768
+  n_quantizers: 50
 
 hydra_dir: /path/to/hydra/dir
 

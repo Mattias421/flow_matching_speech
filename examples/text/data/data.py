@@ -18,7 +18,7 @@ import numpy as np
 
 import torch
 from torch.utils.data import DataLoader
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
+from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, SpeechT5Tokenizer
 from transformers import MimiModel, AutoFeatureExtractor, WhisperProcessor, WhisperForConditionalGeneration
 
 from data.tokenizer import wt_detokenizer, train_tokenizer
@@ -36,6 +36,7 @@ def _get_hf_dataset(
     cache_dir: str = None,
     block_size: int = 1024,
     num_proc: int = 8,
+    text_tokenizer: str = 'speecht5',
 ) -> DatasetDict:
     detokenizer = None
 
@@ -138,6 +139,11 @@ def _get_hf_dataset(
     del model.model.decoder
     model = model.model.encoder.to("cuda").eval()
 
+    if text_tokenizer == 'speecht5':
+        tokenizer = SpeechT5Tokenizer.from_pretrained("microsoft/speecht5_tts")
+    else:
+        tokenizer = processor.tokenizer
+
     def preprocess_and_tokenize_text(example: Dict):
         text = example["text"]
 
@@ -145,7 +151,7 @@ def _get_hf_dataset(
             text = _apply_detokenizer(detokenizer)(text)
 
         text = [processor.tokenizer.normalize(t) for t in text]
-        text_tokens = processor.tokenizer(text, return_attention_mask=False)
+        text_tokens = tokenizer(text, return_attention_mask=False)
 
         return text_tokens
 
@@ -341,12 +347,12 @@ def collate_fn_unpaired(batch, length, mode="text"):
 
     utt_ids = [item["id"] for item in batch]
 
-    fill_val = 50257 if mode == "text" else 2048
-    length = length if mode == "text" else length * 4
+    fill_val = 2 if mode == "text" else 2048 # TODO hardcoding
 
     input_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
 
     for i, item in enumerate(batch):
+        assert len(item['input_ids']) < length
         input_ids[i, :len(item['input_ids'])] = item['input_ids']
 
     collated = {"input_ids": input_ids, "id":utt_ids}

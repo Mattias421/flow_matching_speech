@@ -119,8 +119,8 @@ def step(
     x_1 = text_batch["input_ids"].to(device)
     x_1_speech = audio_batch["input_ids"].to(device) # speech tokens
 
-    x_0 = source_distribution.sample_like(x_1, prompt_len=2)
-    x_0_speech = source_distribution_speech.sample_like(x_1_speech, prompt_len=0)
+    x_0 = source_distribution.sample_like(x_1)
+    x_0_speech = source_distribution_speech.sample_like(x_1_speech)
 
     t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
 

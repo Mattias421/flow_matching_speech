@@ -17,6 +17,7 @@ dependencies = [
     "numpy==1.26.4",
     "pandas==2.0.0",
     "pyarrow==19.0.0",
+    "sentencepiece>=0.2.1",
     "setuptools>=80.9.0",
     "soundfile>=0.13.1",
     "speechtokenizer>=1.0.1",

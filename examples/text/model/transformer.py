@@ -244,6 +244,7 @@ class Transformer(nn.Module):
         add_token = 1 if masked else 0
 
         self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
+        self.audio_tok_proj = nn.Embedding(2049, config.hidden_size)
 
         self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
 
@@ -254,14 +255,6 @@ class Transformer(nn.Module):
             nn.Linear(config.hidden_size, config.hidden_size),
         )
 
-        # TODO some experimentation of architecture available here e.g. could do subsample stacking between layers
-        self.audio_tok_proj = nn.Sequential(
-            nn.Embedding(2049, config.hidden_size // 4), # TODO softcode
-            nn.Flatten(),
-            nn.Unflatten(1,(-1,config.hidden_size)),
-            nn.Linear(config.hidden_size, config.hidden_size),
-            nn.LayerNorm(config.hidden_size),
-        )
 
 
         self.rotary_emb = rotary.Rotary(dim=config.hidden_size // config.n_heads)
@@ -281,7 +274,7 @@ class Transformer(nn.Module):
             ]
         )
 
-        self.quantizer =  GumbelVectorQuantizer(dim=config.hidden_size, num_vars=300, vq_dim=config.hidden_size, time_first=True, combine_groups=False, groups=2, temp=(2,0.5,0.999995))
+        self.quantizer =  GumbelVectorQuantizer(dim=config.hidden_size, num_vars=config.n_quantizers, vq_dim=config.hidden_size, time_first=True, combine_groups=False, groups=2, temp=(2,0.5,0.999995))
 
         self.output_layer = DDitFinalLayer(
             hidden_size=config.hidden_size,
@@ -289,16 +282,9 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
-        # TODO could downsample speech by 2, and upsample text tok by 2, making even tradeoff between the two
-        self.text_tok_proj = nn.Sequential(
-            nn.Flatten(),
-            nn.Unflatten(1,(-1,config.hidden_size // 4)),
-            nn.Linear(config.hidden_size // 4, config.hidden_size // 4),
-            nn.LayerNorm(config.hidden_size // 4),
-        )
 
         self.output_layer_speech = DDitFinalLayer(
-            hidden_size=config.hidden_size // 4,
+            hidden_size=config.hidden_size,
             out_channels=2049, # TODO softcode
             cond_dim=config.cond_dim,
         )
@@ -318,20 +304,6 @@ class Transformer(nn.Module):
         x_t_speech: Tensor = None,
         codebook_prob: float = 0.0,
     ) -> Tensor:
-        # if audio_embeddings is None:
-        #     assert (
-        #         audio_projected is not None and audio_k_all is not None and audio_v_all is not None
-        #     ), "audio_embeddings, audio_projected, audio_k_all, and audio_v_all must be provided if audio_embeddings is None"
-        #     assert not self.training, "audio_embeddings must be provided in training mode"
-        #     if audio_projected.shape[0] != x_t.shape[0]:
-        #         raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_projected={audio_projected.shape[0]}")
-        #     if audio_k_all.shape[0] != x_t.shape[0]:
-        #         raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_k_all={audio_k_all.shape[0]}")
-        #     if audio_v_all.shape[0] != x_t.shape[0]:
-        #         raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_v_all={audio_v_all.shape[0]}")
-        #
-        # elif audio_embeddings.shape[0] != x_t.shape[0]:
-        #     raise ValueError(f"Batch size mismatch: x_t={x_t.shape[0]}, audio_embeddings={audio_embeddings.shape[0]}")
 
         if self.training:
             # Training mode with audio dropout
@@ -503,8 +475,7 @@ class Transformer(nn.Module):
         if x_t_speech is not None:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x[:batch_size], c=c[:batch_size])
-                x = self.text_tok_proj(x[batch_size:])
-                z = self.output_layer_speech(x=x, c=c[batch_size:])
+                z = self.output_layer_speech(x=x[batch_size:], c=c[batch_size:])
 
             return x_out, z
         else:
