@@ -1842,6 +1842,15 @@ wheels = [
 ]
 
 [[package]]
+name = "npy-append-array"
+version = "0.9.19"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/fb/7693333f5ce037a446ae2ed574b299c1cd4b64d320eb13afcd99b9ffc64c/npy_append_array-0.9.19.tar.gz", hash = "sha256:7056e852cf597cca367d06b581068e99c18bb57499c524b4b2ffc7020f8f9477", size = 11552 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/f0/50da1b6c78e82546a58db20b64a340b26bd418559bba2009b6b9f62a524f/npy_append_array-0.9.19-py3-none-any.whl", hash = "sha256:c96838fd99cc14b99b323fc2fd7895ab58a5412a7398750e4a76bebbeafeb652", size = 10813 },
+]
+
+[[package]]
 name = "numba"
 version = "0.62.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3446,6 +3455,7 @@ dependencies = [
     { name = "joblib" },
     { name = "kenlm" },
     { name = "librosa" },
+    { name = "npy-append-array" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -3474,6 +3484,7 @@ requires-dist = [
     { name = "joblib", specifier = ">=1.5.2" },
     { name = "kenlm", specifier = ">=0.3.0" },
     { name = "librosa", specifier = ">=0.11.0" },
+    { name = "npy-append-array", specifier = ">=0.9.19" },
     { name = "numpy", specifier = "==1.26.4" },
     { name = "pandas", specifier = "==2.0.0" },
     { name = "pyarrow", specifier = "==19.0.0" },
