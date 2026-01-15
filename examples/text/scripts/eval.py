@@ -16,8 +16,7 @@ from flow_matching.loss import MixturePathGeneralizedKL
 from logic import evaluate, flow, generate
 
 from torch.utils.data import DataLoader
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, WhisperProcessor
+from transformers import WhisperProcessor
 from utils import checkpointing
 
 
@@ -45,9 +44,9 @@ def run_eval(
     cfg = checkpointing.load_cfg_from_path(work_dir=work_dirs.checkpoint)
 
     # Data
-    if cfg.data.codec_name == 'mimi':
+    if cfg.data.codec_name == "mimi":
         vocab_size_codec = 2048
-    elif cfg.data.codec_name == 'focalcodec':
+    elif cfg.data.codec_name == "focalcodec":
         vocab_size_codec = 8192
 
     processor = WhisperProcessor.from_pretrained("openai/whisper-small")
@@ -55,7 +54,6 @@ def run_eval(
 
     pad_id = tokenizer.encode("<|endoftranscript|>")[0]
     vocab_size = len(tokenizer)
-
 
     # Flow matching
     path = flow.get_path(
@@ -87,8 +85,8 @@ def run_eval(
 
         data_state_audio = data._get_dataset(
             name=data_name,
-            mode='audio',
-            split='validation',
+            mode="audio",
+            split="validation",
             cache_dir=cfg.data.cache_dir,
             block_size=cfg.model.length,
             num_proc=cfg.data.num_workers,
@@ -100,8 +98,8 @@ def run_eval(
 
         data_state_text = data._get_dataset(
             name=data_name,
-            mode='text',
-            split='validation',
+            mode="text",
+            split="validation",
             cache_dir=cfg.data.cache_dir,
             block_size=cfg.model.length,
             num_proc=cfg.data.num_workers,
@@ -114,7 +112,9 @@ def run_eval(
         dataloader_audio = DataLoader(
             data_state_audio.dataset,
             batch_size=batch_size,
-            collate_fn=lambda x : data.collate_fn_unpaired(x, cfg.model.length, mode="audio"),
+            collate_fn=lambda x: data.collate_fn_unpaired(
+                x, cfg.model.length, mode="audio"
+            ),
             sampler=data_state_audio.sampler,
             num_workers=cfg.data.num_workers,
             pin_memory=True,
@@ -129,14 +129,14 @@ def run_eval(
             num_workers=cfg.data.num_workers,
             pin_memory=True,
             shuffle=False,
-            )
+        )
 
         generate.generate_transcription(
             model=model.module,
             step=sampling_steps,  # results stored in iter_{sampling_steps}
             sample_dir=sample_dir,
             vocab_size=vocab_size,
-            dataloader=zip(dataloader_text,dataloader_audio),
+            dataloader=zip(dataloader_text, dataloader_audio),
             tokenizer=tokenizer,
             rank=rank,
             device=device,

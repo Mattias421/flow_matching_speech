@@ -43,14 +43,12 @@ class TrainState:
     def model(self) -> nn.Module:
         return self._model
 
-
     @property
     def data_state(self) -> DataState:
         return self._data_state
 
     def compile_model(self) -> None:
         self._model = torch.compile(self._model)
-
 
     def restore_checkpoint(
         self, ckpt_dir: Path, device: torch.device, rank: int
@@ -63,7 +61,9 @@ class TrainState:
             self.step = loaded_state["step"]
 
             if loaded_state["test_text_sampler"]:
-                self._data_state.test_text.sampler.load_state_dict(loaded_state["test_text_sampler"])
+                self._data_state.test_text.sampler.load_state_dict(
+                    loaded_state["test_text_sampler"]
+                )
 
             if loaded_state["audio_sampler"]:
                 self._data_state.audio.sampler.load_state_dict(
@@ -99,7 +99,9 @@ class TrainState:
             saved_state["text_sampler"] = None
 
         if self._data_state.test_text.sampler:
-            saved_state["test_text_sampler"] = self._data_state.test_text.sampler.state_dict()
+            saved_state["test_text_sampler"] = (
+                self._data_state.test_text.sampler.state_dict()
+            )
         else:
             saved_state["test_text_sampler"] = None
 

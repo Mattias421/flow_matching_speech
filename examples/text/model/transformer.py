@@ -10,9 +10,6 @@
 # Part of this implementation is adapted from https://github.com/louaaron/Score-Entropy-Discrete-Diffusion
 # which is released under MIT license
 
-# Modifications copyright (c) 2025 aiOla
-# adapted from https://github.com/facebookresearch/flow_matching/blob/main/examples/text/model/transformer.py
-# changes: added support for audio branch via cross attention and CFG
 
 import math
 
@@ -27,7 +24,9 @@ from . import rotary
 from .gumbel_vector_quantizer import GumbelVectorQuantizer
 
 
-def bias_dropout_add_scale(x: Tensor, scale: Tensor, residual: Tensor | None, prob: float, training: bool) -> Tensor:
+def bias_dropout_add_scale(
+    x: Tensor, scale: Tensor, residual: Tensor | None, prob: float, training: bool
+) -> Tensor:
     return residual + scale * F.dropout(x, p=prob, training=training)
 
 
@@ -70,11 +69,17 @@ class TimestepEmbedder(nn.Module):
         :return: an (N, D) Tensor of positional embeddings.
         """
         half = dim // 2
-        freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half).to(device=time.device)
+        freqs = torch.exp(
+            -math.log(max_period)
+            * torch.arange(start=0, end=half, dtype=torch.float32)
+            / half
+        ).to(device=time.device)
         args = time[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
         return embedding
 
     def forward(self, time: Tensor) -> Tensor:
@@ -108,14 +113,6 @@ class DDiTBlock(nn.Module):
         self.attn_out = nn.Linear(dim, dim, bias=False)
         self.dropout1 = nn.Dropout(dropout)
 
-        # Cross attention (always enabled)
-        self.norm_cross = LayerNorm(dim=dim)
-        self.norm_audio = LayerNorm(dim=dim)
-        self.q_cross = nn.Linear(dim, dim, bias=False)
-        self.k_cross = nn.Linear(dim, dim, bias=False)
-        self.v_cross = nn.Linear(dim, dim, bias=False)
-        self.cross_out = nn.Linear(dim, dim, bias=False)
-
         # MLP
         self.norm2 = LayerNorm(dim=dim)
         self.mlp = nn.Sequential(
@@ -125,7 +122,8 @@ class DDiTBlock(nn.Module):
         )
 
         # AdaLN modulation (9 parameters for msa/cross/mlp)
-        n_params = 9
+        n_params = 6
+        self.n_params = n_params
         self.adaLN_modulation = nn.Linear(cond_dim, n_params * dim, bias=True)
         self.adaLN_modulation.weight.data.zero_()
         self.adaLN_modulation.bias.data.zero_()
@@ -135,15 +133,21 @@ class DDiTBlock(nn.Module):
         x: Tensor,
         rotary_cos_sin: Tensor,
         c: Tensor,
-        audio: Tensor,
-        audio_k: Tensor | None = None,
-        audio_v: Tensor | None = None,
     ) -> Tensor:
         batch_size, seq_len = x.shape[0], x.shape[1]
 
         # Get modulation parameters for all layers (9 or 6 total)
-        modulation_params = self.adaLN_modulation(c)[:, None].chunk(9, dim=2)
-        shift_msa, scale_msa, gate_msa, shift_cross, scale_cross, gate_cross, shift_mlp, scale_mlp, gate_mlp = modulation_params
+        modulation_params = self.adaLN_modulation(c)[:, None].chunk(
+            self.n_params, dim=2
+        )
+        (
+            shift_msa,
+            scale_msa,
+            gate_msa,
+            shift_mlp,
+            scale_mlp,
+            gate_mlp,
+        ) = modulation_params
 
         # Self attention
         x_skip = x
@@ -153,14 +157,21 @@ class DDiTBlock(nn.Module):
         k = self.kw(x)
         v = self.vw(x)
 
-        q, k, v = (item.view(batch_size, seq_len, self.n_heads, self.head_dim) for item in (q, k, v))
+        q, k, v = (
+            item.view(batch_size, seq_len, self.n_heads, self.head_dim)
+            for item in (q, k, v)
+        )
 
         with torch.amp.autocast("cuda", enabled=False):
             cos, sin = rotary_cos_sin
             original_dtype = q.dtype
 
-            q = rotary.apply_rotary_emb_torch(x=q.float(), cos=cos.float(), sin=sin.float()).to(original_dtype)
-            k = rotary.apply_rotary_emb_torch(x=k.float(), cos=cos.float(), sin=sin.float()).to(original_dtype)
+            q = rotary.apply_rotary_emb_torch(
+                x=q.float(), cos=cos.float(), sin=sin.float()
+            ).to(original_dtype)
+            k = rotary.apply_rotary_emb_torch(
+                x=k.float(), cos=cos.float(), sin=sin.float()
+            ).to(original_dtype)
 
         q, k, v = (item.transpose(1, 2) for item in (q, k, v))
         x = F.scaled_dot_product_attention(query=q, key=k, value=v)
@@ -168,32 +179,6 @@ class DDiTBlock(nn.Module):
         x = bias_dropout_add_scale(
             x=self.attn_out(x),
             scale=gate_msa,
-            residual=x_skip,
-            prob=self.dropout,
-            training=self.training,
-        )
-
-        # Cross attention (always)
-        x_skip = x
-        x = modulate(x=self.norm_cross(x), shift=shift_cross, scale=scale_cross)
-        q = self.q_cross(x)
-        if (audio_k is not None) and (audio_v is not None):
-            k = audio_k
-            v = audio_v
-        else:
-            audio = self.norm_audio(audio)
-            k = self.k_cross(audio)
-            v = self.v_cross(audio)
-
-        q = rearrange(q, "b s (h d) -> b h s d", h=self.n_heads)
-        k = rearrange(k, "b s (h d) -> b h s d", h=self.n_heads)
-        v = rearrange(v, "b s (h d) -> b h s d", h=self.n_heads)
-
-        x = F.scaled_dot_product_attention(query=q, key=k, value=v)
-        x = rearrange(x, "b h s d -> b s (h d)")
-        x = bias_dropout_add_scale(
-            x=self.cross_out(x),
-            scale=gate_cross,
             residual=x_skip,
             prob=self.dropout,
             training=self.training,
@@ -244,18 +229,11 @@ class Transformer(nn.Module):
         add_token = 1 if masked else 0
 
         self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
-        self.audio_tok_proj = nn.Embedding(2049, config.hidden_size)
-
-        self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
-
-        # Audio projection to match hidden size
-        self.audio_proj = nn.Sequential(
-            nn.Linear(config.whisper_dim, config.hidden_size),
-            nn.GELU(),
-            nn.Linear(config.hidden_size, config.hidden_size),
+        self.vocab_embed_speech = nn.Embedding(
+            config.vocab_size_speech + add_token, config.hidden_size
         )
 
-
+        self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
 
         self.rotary_emb = rotary.Rotary(dim=config.hidden_size // config.n_heads)
 
@@ -274,7 +252,15 @@ class Transformer(nn.Module):
             ]
         )
 
-        self.quantizer =  GumbelVectorQuantizer(dim=config.hidden_size, num_vars=config.n_quantizers, vq_dim=config.hidden_size, time_first=True, combine_groups=False, groups=2, temp=(2,0.5,0.999995))
+        self.quantizer = GumbelVectorQuantizer(
+            dim=config.hidden_size,
+            num_vars=config.n_quantizers,
+            vq_dim=config.hidden_size,
+            time_first=True,
+            combine_groups=False,
+            groups=2,
+            temp=(2, 0.5, 0.999995),
+        )
 
         self.output_layer = DDitFinalLayer(
             hidden_size=config.hidden_size,
@@ -282,229 +268,100 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
-
         self.output_layer_speech = DDitFinalLayer(
             hidden_size=config.hidden_size,
-            out_channels=2049, # TODO softcode
+            out_channels=config.vocab_size_speech + add_token,
             cond_dim=config.cond_dim,
         )
 
+    # Internal forward method for inference
     def forward(
         self,
-        x_t: Tensor,
+        x_t_speech: Tensor,
         time: Tensor,
-        audio_embeddings: Tensor | None = None,
-        preserve_mask: Tensor = None,
-        audio_projected: Tensor | None = None,
-        audio_k_all: Tensor | None = None,
-        audio_v_all: Tensor | None = None,
-        cfg_strength: float = 1.0,
-        audio_drop_prob: float = 0.0,
-        use_gradient_checkpointing: bool = False,
-        x_t_speech: Tensor = None,
+        padding_mask_speech: Tensor,
+        x_t_text: Tensor = None,
+        padding_mask_text: Tensor = None,
         codebook_prob: float = 0.0,
+        inference_block: int = None,
     ) -> Tensor:
+        batch_size = x_t_speech.shape[0]
 
-        if self.training:
-            # Training mode with audio dropout
-            if audio_drop_prob > 0:
-                # Create dropout mask without modifying input tensor
-                mask = torch.rand(x_t.shape[0], device=x_t.device) < audio_drop_prob
-                audio_embeddings = torch.where(mask.unsqueeze(-1).unsqueeze(-1), torch.zeros_like(audio_embeddings), audio_embeddings)
-
-            return self._forward(
-                x_t=x_t,
-                time=time,
-                audio_embeddings=audio_embeddings,
-                preserve_mask=preserve_mask,
-                audio_projected=audio_projected,
-                audio_k_all=audio_k_all,
-                audio_v_all=audio_v_all,
-                use_gradient_checkpointing=use_gradient_checkpointing,
-                x_t_speech=x_t_speech,
-                codebook_prob=codebook_prob,
-            )
-
-        elif cfg_strength == 1.0:
-            # Regular inference mode
-            return self._forward(
-                x_t=x_t,
-                time=time,
-                audio_embeddings=audio_embeddings,
-                preserve_mask=preserve_mask,
-                audio_projected=audio_projected,
-                audio_k_all=audio_k_all,
-                audio_v_all=audio_v_all,
-                use_gradient_checkpointing=use_gradient_checkpointing,
-                x_t_speech=x_t_speech,
-                codebook_prob=codebook_prob,
-            )
-        elif cfg_strength == 0.0:
-            # Regular unconditional inference mode
-            uncond_audio_embeddings = torch.zeros_like(audio_embeddings)
-            return self._forward(
-                x_t=x_t,
-                time=time,
-                audio_embeddings=uncond_audio_embeddings,
-                preserve_mask=preserve_mask,
-                audio_projected=audio_projected,
-                audio_k_all=audio_k_all,
-                audio_v_all=audio_v_all,
-                use_gradient_checkpointing=use_gradient_checkpointing,
-                codebook_prob=codebook_prob,
-            )
-
-        else:
-            # CFG inference mode - not training and cfg_strength != 1.0
-            # Create unconditioned batch (zeros for audio embeddings)
-            # NOTE: we use a similar approach to LlamaGen:
-            # https://github.com/FoundationVision/LlamaGen/blob/main/autoregressive/models/generate.py#L96-L97
-            uncond_audio_embeddings = torch.zeros_like(audio_embeddings)
-
-            # Concatenate conditioned and unconditioned batches
-            double_time = torch.cat([time, time], dim=0)
-            double_x_t = torch.cat([x_t, x_t], dim=0)
-            double_preserve_mask = torch.cat([preserve_mask, preserve_mask], dim=0) if preserve_mask is not None else None
-
-            # Build or combine caches
-            with torch.no_grad():
-                cond_cache = (
-                    self.build_audio_cache(audio_embeddings)
-                    if audio_projected is None
-                    else {
-                        "audio_projected": audio_projected,
-                        "audio_k_all": audio_k_all,
-                        "audio_v_all": audio_v_all,
-                    }
-                )
-                uncond_cache = self.build_audio_cache(uncond_audio_embeddings)
-
-            double_proj = torch.cat([cond_cache["audio_projected"], uncond_cache["audio_projected"]], dim=0)
-            double_k_all = torch.cat([cond_cache["audio_k_all"], uncond_cache["audio_k_all"]], dim=0)
-            double_v_all = torch.cat([cond_cache["audio_v_all"], uncond_cache["audio_v_all"]], dim=0)
-
-            # Get logits for both conditioned and unconditioned using cache
-            double_logits = self._forward(
-                x_t=double_x_t,
-                time=double_time,
-                audio_embeddings=audio_embeddings,  # unused when projected tensors are provided
-                preserve_mask=double_preserve_mask,
-                audio_projected=double_proj,
-                audio_k_all=double_k_all,
-                audio_v_all=double_v_all,
-                use_gradient_checkpointing=use_gradient_checkpointing,
-                codebook_prob=codebook_prob,
-            )
-
-            # Split results
-            cond_logits, uncond_logits = double_logits.chunk(2, dim=0)
-
-            # Apply CFG formula
-            logits = uncond_logits + cfg_strength * (cond_logits - uncond_logits)
-
-            return logits
-
-    # Internal forward method for inference
-    def _forward(
-        self,
-        x_t: Tensor,
-        time: Tensor,
-        audio_embeddings: Tensor,
-        preserve_mask: Tensor = None,
-        audio_projected: Tensor | None = None,
-        audio_k_all: Tensor | None = None,
-        audio_v_all: Tensor | None = None,
-        use_gradient_checkpointing: bool = False,
-        x_t_speech: Tensor = None,
-        codebook_prob: float = 0.0,
-    ) -> Tensor:
-        batch_size = x_t.shape[0]
-
-        # Handle both one-hot and index inputs
-        if x_t.dim() == 3:  # one-hot input
-            # Convert one-hot to embeddings directly
-            x = torch.matmul(x_t, self.vocab_embed.weight)
-        else:  # index input
-            # Ensure indices are long type
-            x = self.vocab_embed(x_t.long())
-
-        # Add preserve embeddings
-        if preserve_mask is not None:
-            x = x + self.preserve_embeddings(preserve_mask.long())
-
-        # Project audio to hidden dimension (or use provided tensors)
-        if audio_projected is not None:
-            audio = audio_projected
-        else:
-            audio = self.audio_proj(audio_embeddings)
-
+        x = self.vocab_embed_speech(x_t_speech.long())
 
         # Get time embeddings
         c = F.silu(self.time_embedding(time=time))
-        if x_t_speech is not None:
-            x_speech = self.audio_tok_proj(x_t_speech)
-            x = torch.cat([x,x_speech])
-            c = torch.cat([c,c])
+
+        if x_t_text is not None:
+            assert x_t_text.shape[0] == x_t_speech.shape[0], f"{x_t_text.shape[0]},{x_t_speech.shape[0]}"
+            x_text = self.vocab_embed(x_t_text.long())
+            
+            # 1. Calculate how much padding each tensor needs to reach target_size
+            target_size = max(x.shape[1], x_text.shape[1])
+            pad_x = target_size - x.shape[1]
+            pad_text = target_size - x_text.shape[1]
+
+            # 2. Pad the sequence dimension (dim 1) 
+            # F.pad expects (last_dim_front, last_dim_back, second_last_front, second_last_back...)
+            x_padded = F.pad(x, (0, 0, 0, pad_x)) 
+            x_text_padded = F.pad(x_text, (0, 0, 0, pad_text))
+
+            # 3. Stack them along the batch dimension (dim 0)
+            x = torch.cat([x_text_padded, x_padded], dim=0)
+
+            # 4. Handle padding masks similarly
+            mask_text_padded = F.pad(padding_mask_text, (0, pad_text), value=True)
+            mask_speech_padded = F.pad(padding_mask_speech, (0, pad_x), value=True)
+            padding_mask = torch.cat([mask_text_padded, mask_speech_padded], dim=0)
+
+            # 5. Double the time embedding
+            c = torch.cat([c, c], dim=0)
+        else:
+            padding_mask = padding_mask_speech
 
         rotary_cos_sin = self.rotary_emb(x=x)
 
+        inference_block = len(self.blocks) if inference_block is None else inference_block
+
         with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-            for i in range(len(self.blocks)):
-                if use_gradient_checkpointing and self.training:
-                    x = torch.utils.checkpoint.checkpoint(self.blocks[i], x, rotary_cos_sin, c, audio, None, None, use_reentrant=False)
-                else:
-                    audio_k = audio_k_all[:, i] if audio_k_all is not None else None
-                    audio_v = audio_v_all[:, i] if audio_v_all is not None else None
-                    x = self.blocks[i](x=x, rotary_cos_sin=rotary_cos_sin, c=c, audio=audio, audio_k=audio_k, audio_v=audio_v)
+            for i in range(inference_block):
+                x = x * ~padding_mask[:, :, None]
+                x = self.blocks[i](
+                    x=x,
+                    rotary_cos_sin=rotary_cos_sin,
+                    c=c,
+                )
+                x = x * ~padding_mask[:, :, None]
 
         if codebook_prob > 0.0:
             q = self.quantizer(x)
 
             # q["x"]: B x T x C
             # Sample indexs according to the codebook prob
-            random_idx = torch.randperm(q["x"].size(1))[:int(q["x"].size(1) * codebook_prob)]
+            random_idx = torch.randperm(q["x"].size(1))[
+                : int(q["x"].size(1) * codebook_prob)
+            ]
             # Make weight for q
             q_w = q["x"].new_zeros(q["x"].size(1))
             q_w[random_idx] = 1.0
             # Combine quantized codes and encoder output
-            x = (
-                q_w.view(-1, 1) * q["x"] + (- q_w + 1).view(-1, 1) * x
-            )
+            x = q_w.view(-1, 1) * q["x"] + (-q_w + 1).view(-1, 1) * x
+            x = x * ~padding_mask[:, :, None]
 
         # Apply final layer with full precision
-        if x_t_speech is not None:
+        if x_t_text is not None:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x[:batch_size], c=c[:batch_size])
                 z = self.output_layer_speech(x=x[batch_size:], c=c[batch_size:])
+
+                x_out = x_out * ~padding_mask[:batch_size, :, None]
+                x_out = x_out[:,:x_t_text.shape[-1]]
+                z = z * ~padding_mask[batch_size:, :, None]
+                z = z[:,:x_t_speech.shape[-1]]
 
             return x_out, z
         else:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x, c=c)
+                x_out = x_out * ~padding_mask[:, :, None]
             return x_out
-
-
-    @torch.no_grad()
-    def build_audio_cache(self, audio_embeddings: torch.Tensor) -> dict:
-        """Precompute audio projection and per-block cross-attention K/V for fixed audio.
-        Returns a dict with three tensors suitable for replication by solvers:
-          - audio_projected: [B, L, H]
-          - audio_k_all: [B, num_blocks, L, H]
-          - audio_v_all: [B, num_blocks, L, H]
-        For blocks without cross attention, K/V entries are zeros.
-        """
-        B, L, H = audio_embeddings.shape
-        projected_audio = self.audio_proj(audio_embeddings)
-        num_blocks = len(self.blocks)
-        # Derive feature dim from a sample projection
-        feat_dim = projected_audio.size(-1)
-        k_all = projected_audio.new_zeros((B, num_blocks, L, feat_dim))
-        v_all = projected_audio.new_zeros((B, num_blocks, L, feat_dim))
-        for i, blk in enumerate(self.blocks):
-            norm_a = blk.norm_audio(projected_audio)
-            k = blk.k_cross(norm_a)
-            v = blk.v_cross(norm_a)
-            k_all[:, i] = k
-            v_all[:, i] = v
-
-        return {"audio_projected": projected_audio, "audio_k_all": k_all, "audio_v_all": v_all}

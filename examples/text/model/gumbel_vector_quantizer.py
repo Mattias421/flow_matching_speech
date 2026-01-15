@@ -48,9 +48,9 @@ class GumbelVectorQuantizer(nn.Module):
         self.time_first = time_first
         self.hard = hard
 
-        assert (
-            vq_dim % groups == 0
-        ), f"dim {vq_dim} must be divisible by groups {groups} for concatenation"
+        assert vq_dim % groups == 0, (
+            f"dim {vq_dim} must be divisible by groups {groups} for concatenation"
+        )
 
         var_dim = vq_dim // groups
         num_groups = groups if not combine_groups else 1
@@ -125,9 +125,9 @@ class GumbelVectorQuantizer(nn.Module):
         indices = self.get_codebook_indices()
         indices = indices.view(-1, self.groups)
         cb_size = indices.size(0)
-        assert (
-            n < cb_size
-        ), f"sample size {n} is greater than size of codebook {cb_size}"
+        assert n < cb_size, (
+            f"sample size {n} is greater than size of codebook {cb_size}"
+        )
         sample_idx = torch.randint(low=0, high=cb_size, size=(b * n,))
         indices = indices[sample_idx]
 
@@ -146,7 +146,6 @@ class GumbelVectorQuantizer(nn.Module):
         return res["x"], res["targets"]
 
     def forward(self, x, produce_targets=False):
-
         result = {"num_vars": self.num_vars * self.groups}
 
         if not self.time_first:

@@ -6,20 +6,19 @@
 
 import datetime
 import os
-from copy import deepcopy
 
 import torch
 import torch.distributed as dist
 from data import data
 from flow_matching.loss import MixturePathGeneralizedKL
 
-from logic import evaluate, flow, generate, training
+from logic import flow, generate, training
 from logic.state import TrainState
 from model import Transformer
 from omegaconf import OmegaConf
 from torch import optim
 from torch.nn.parallel import DistributedDataParallel as DDP
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, WhisperProcessor, SpeechT5Tokenizer
+from transformers import WhisperProcessor, SpeechT5Tokenizer
 from utils import checkpointing, logging
 
 
@@ -37,7 +36,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     logger.log_devices(device=device, logger=logger)
 
     processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-    if cfg.data.text_tokenizer == 'speecht5':
+    if cfg.data.text_tokenizer == "speecht5":
         tokenizer = SpeechT5Tokenizer.from_pretrained("microsoft/speecht5_tts")
         pad_id = tokenizer.encode("<pad>")[0]
     else:
@@ -50,7 +49,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     )
 
     source_distribution_speech = flow.get_source_distribution(
-        source_distribution=cfg.flow.source_distribution, vocab_size=2049 # TODO softcode
+        source_distribution=cfg.flow.source_distribution,
+        vocab_size=cfg.model.vocab_size_speech,
     )
 
     # Model initialization
@@ -83,8 +83,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    audio_iter, text_iter, eval_iter, eval_iter_text, eval_iter_audio = data.get_data_loaders(
-        config=cfg, data_state=data_state
+    audio_iter, text_iter, eval_iter, eval_iter_text, eval_iter_audio = (
+        data.get_data_loaders(config=cfg, data_state=data_state)
     )
 
     # Data
@@ -109,16 +109,13 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     cer = None
 
     while state.step <= num_train_steps:
-
         text = next(text_iter)
         audio = next(audio_iter)
 
         (
             loss,
             loss_text,
-            loss_text_no_pad,
             loss_speech,
-            loss_speech_no_pad,
         ) = training.step(
             loss_fn=loss_fn,
             path=path,
@@ -143,9 +140,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             [
                 loss,
                 loss_text,
-                loss_text_no_pad,
                 loss_speech,
-                loss_speech_no_pad,
             ]
         )
 
@@ -160,9 +155,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 [
                     "loss",
                     "loss_text",
-                    "loss_text_no_pad",
                     "loss_speech",
-                    "loss_speech_no_pad",
                 ],
                 agg_train_loss_values,
             ):
@@ -184,8 +177,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             (
                 eval_loss,
-                _,
-                eval_loss_no_pad,
                 _,
                 _,
             ) = training.step(
@@ -225,9 +216,9 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 step=state.step,
                 sample_dir=work_dirs.samples,
                 vocab_size=vocab_size,
-                dataloader=zip(eval_iter_text, eval_iter_audio),
+                audioloader=eval_iter_audio,
                 tokenizer=tokenizer,
-                normalize=processor.tokenizer.normalize,
+                normalize=processor.tokenizer.basic_normalize,
                 rank=rank,
                 device=device,
                 path=path,
@@ -237,6 +228,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 sampling_steps=cfg.flow.sampling_steps,
                 time_epsilon=time_epsilon,
                 pad_id=pad_id,
+                inference_block=cfg.eval.inference_block,
                 cfg_strength=cfg.eval.cfg_strength,
             )
 

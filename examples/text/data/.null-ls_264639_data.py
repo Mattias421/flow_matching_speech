@@ -7,7 +7,6 @@
 # which is released under MIT license
 
 from dataclasses import dataclass, field
-from itertools import chain
 from typing import Dict, Iterable, Tuple
 from pathlib import Path
 

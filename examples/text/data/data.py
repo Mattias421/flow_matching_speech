@@ -8,21 +8,18 @@
 
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Tuple
-from pathlib import Path
-import joblib
 
-from datasets import DatasetDict, load_dataset, concatenate_datasets, Audio, load_dataset_builder
+from datasets import DatasetDict, load_dataset, load_dataset_builder
 from omegaconf import OmegaConf
-from sklearn.cluster import MiniBatchKMeans
-import numpy as np
 
 import torch
 from torch.utils.data import DataLoader
-from transformers import GPT2TokenizerFast, PreTrainedTokenizerFast, SpeechT5Tokenizer
-from transformers import MimiModel, AutoFeatureExtractor, WhisperProcessor, WhisperForConditionalGeneration
+from transformers import SpeechT5Tokenizer
+from transformers import WhisperProcessor
 
-from data.tokenizer import wt_detokenizer, train_tokenizer
+from data.tokenizer import wt_detokenizer
 from data.utils import cycle_loader, StatefulDistributedSampler
+from data.extracted_features_dataset import ExtractedFeaturesDataset
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,7 +33,7 @@ def _get_hf_dataset(
     cache_dir: str = None,
     block_size: int = 1024,
     num_proc: int = 8,
-    text_tokenizer: str = 'speecht5',
+    text_tokenizer: str = "speecht5",
 ) -> DatasetDict:
     detokenizer = None
 
@@ -51,31 +48,19 @@ def _get_hf_dataset(
         data = load_dataset(
             "HuggingFaceFW/fineweb-edu", name="CC-MAIN-2024-10", cache_dir=cache_dir
         )[mode]
-    elif name == "librispeech":
-        if split == 'train':
-            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split=["train.clean.100","train.clean.360"])
-            data = concatenate_datasets(data)
-        elif split == "validation":
-            data = load_dataset("openslr/librispeech_asr", cache_dir=cache_dir, split="validation.clean")
-        else:
-            # test clean or other
-            data = data[mode]
-        # if codec_name == 'mimi':
-        #     data = data.cast_column(
-        #         "audio",
-        #         Audio(sampling_rate=24000),  # mimi expects 24khz
-        #     )
-
     elif name == "librispeech_lm":
-        builder = load_dataset_builder('openslr/librispeech_lm', cache_dir=cache_dir, trust_remote_code=True)
+        builder = load_dataset_builder(
+            "openslr/librispeech_lm", cache_dir=cache_dir, trust_remote_code=True
+        )
         builder.download_and_prepare()
-        data = builder.as_dataset(split='train')
-        data = data.train_test_split(train_size=0.01, seed=42)['train'] # trim because 80m rows is far too many
-        data = data.filter(lambda example : len(example['text']) <= 510)
+        data = builder.as_dataset(split="train")
+        data = data.train_test_split(train_size=0.01, seed=42)[
+            "train"
+        ]  # trim because 80m rows is far too many
+        data = data.filter(lambda example: len(example["text"]) <= 510)
     elif name == "librispeech_dummy":
-
         data = load_dataset(
-                "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
+            "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
         )
     else:
         data = load_dataset(name, cache_dir=cache_dir)[mode]
@@ -88,58 +73,10 @@ def _get_hf_dataset(
 
         return detok
 
-
-    # load the model + feature extractor (for pre-processing the audio)
-    if codec_name == 'mimi':
-        codec_model = MimiModel.from_pretrained("kyutai/mimi").to("cuda")
-        feature_extractor = AutoFeatureExtractor.from_pretrained("kyutai/mimi")
-
-        n_vocab = 2048
-
-        def get_audio_tokens(audio):
-            inputs = feature_extractor(
-                raw_audio=audio,
-                sampling_rate=feature_extractor.sampling_rate,
-                return_tensors="pt",
-            ).to("cuda")
-
-            audio_tokens = (
-                codec_model.encode(inputs["input_values"]).audio_codes[:, 0, :].cpu().tolist()
-            )  # 0th codebook is semantic
-            return audio_tokens
-
-    elif codec_name == 'focalcodec':
-        model = torch.hub.load(
-            repo_or_dir="lucadellalib/focalcodec",
-            model="focalcodec",
-            config="lucadellalib/focalcodec_12_5hz",
-            force_reload=True,  # Fetch the latest FocalCodec version from Torch Hub
-        )
-        model.eval().requires_grad_(False).to("cuda")
-
-        n_vocab = 8192
-
-        def get_audio_tokens(audio):
-            batch_size = len(audio)
-            lens = [a.shape[0] for a in audio]
-            max_len = max(lens)
-
-            audio_batch = torch.zeros((batch_size, max_len)).to("cuda")
-
-            for i, (a, le) in enumerate(zip(audio, lens)):
-                audio_batch[i,:le] = torch.tensor(a)
-
-            return model.sig_to_toks(audio_batch)
-
-
-
     logger.info("loading tokenizer")
     processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-    model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
-    del model.model.decoder
-    model = model.model.encoder.to("cuda").eval()
 
-    if text_tokenizer == 'speecht5':
+    if text_tokenizer == "speecht5":
         tokenizer = SpeechT5Tokenizer.from_pretrained("microsoft/speecht5_tts")
     else:
         tokenizer = processor.tokenizer
@@ -150,90 +87,47 @@ def _get_hf_dataset(
         if detokenizer is not None:
             text = _apply_detokenizer(detokenizer)(text)
 
-        text = [processor.tokenizer.normalize(t) for t in text]
+        text = [processor.tokenizer.basic_normalize(t) for t in text]
         text_tokens = tokenizer(text, return_attention_mask=False)
 
         return text_tokens
 
-    def encode_audio(example):
-        audio = example["audio"]["array"]
-        length = len(audio) / (16000 * 30)
-        mel_features = processor(audio, sampling_rate=16000).input_features
-        input_features = torch.tensor(mel_features).to("cuda")
-        with torch.no_grad():
-            neural_features = model(input_features)
-        input_features = input_features.cpu()
-        neural_features = neural_features.last_hidden_state.cpu()
-
-        return {"neural_features":neural_features}
-
-
-    def preprocess_and_tokenize_audio(example: Dict):
-
-        audio = [a["array"] for a in example["audio"]]
-        lens = [a.shape[0] for a in audio]
-        max_len = max(lens)
-        lens = [l / max_len for l in lens]
-
-        audio_tokens = get_audio_tokens(audio)
-
-        input_ids = []
-
-        for audio, audio_len in zip(audio_tokens, lens):
-            seq = audio[: int(audio_len * len(audio))]
-            assert (block_size*4) >= len(seq), (
-                "Audio sequence length greater than block size, consider increasing block_size"
-            )
-
-            input_ids.append(seq)
-
-        return {"input_ids": input_ids}
-
-
     logger.info("Tokenizing data")
-    if mode == 'audio':
-        logger.info("encoding audio")
-        tokenized_dataset = data.map(
-            encode_audio,
-            batched=False,
-            batch_size=4,
-            num_proc=1,
-            load_from_cache_file=True,
-        )
 
-        tokenized_dataset = tokenized_dataset.map(
-            preprocess_and_tokenize_audio,
-            batched=True,
-            batch_size=4,
-            num_proc=1,
-            load_from_cache_file=True,
-        )
-
-    elif mode == 'text':
-        tokenized_dataset = data.map(
-            preprocess_and_tokenize_text,
-            batched=True,
-            batch_size=1000,
-            num_proc=8,
-            load_from_cache_file=True,
-        )
-
-    model = model.cpu()
-    codec_model = codec_model.cpu()
-
-    # keep_columns = ["input_ids", "id"]
-    #
-    # if name == "fineweb-edu" or "librispeech" in name:
-    #     features = tokenized_dataset.features.keys()
-    #     for k in features:
-    #         if k not in keep_columns:
-    #             tokenized_dataset = tokenized_dataset.remove_columns(k)
-    # else:
-    #     tokenized_dataset = tokenized_dataset.remove_columns("text")
+    tokenized_dataset = data.map(
+        preprocess_and_tokenize_text,
+        batched=True,
+        batch_size=1000,
+        num_proc=8,
+        load_from_cache_file=True,
+    )
 
     tokenized_dataset = tokenized_dataset.with_format("torch")
 
     return tokenized_dataset
+
+
+def _get_extracted_features_dataset(
+    path: str,
+    split: str,
+    max_length: int,
+    seed: int,
+    supervised: bool,
+    labels: str = None,
+):
+    dataset = ExtractedFeaturesDataset(
+        path=path,
+        split=split,
+        max_length=max_length,
+        labels=labels,
+    )
+    sampler = (
+        StatefulDistributedSampler(dataset=dataset, seed=seed)
+        if not supervised
+        else None
+    )
+    dataset.sampler = sampler
+    return dataset
 
 
 @dataclass
@@ -246,10 +140,10 @@ class Dataset:
 
 @dataclass
 class DataState:
-    audio: Dataset = field(metadata={"help": "Audio dataset"})
+    audio: ExtractedFeaturesDataset = field(metadata={"help": "Audio dataset"})
     text: Dataset = field(metadata={"help": "text dataset"})
     test_text: Dataset = field(metadata={"help": "Test dataset"})
-    test_audio: Dataset = field(metadata={"help": "Test dataset"})
+    test_audio: ExtractedFeaturesDataset = field(metadata={"help": "Test dataset"})
 
 
 def _get_dataset(
@@ -279,9 +173,14 @@ def _get_dataset(
         codec_name=codec_name,
     )
 
-    sampler = StatefulDistributedSampler(dataset=dataset, seed=seed) if not supervised else None
+    sampler = (
+        StatefulDistributedSampler(dataset=dataset, seed=seed)
+        if not supervised
+        else None
+    )
 
     return Dataset(dataset=dataset, sampler=sampler)
+
 
 def get_data_state(config: OmegaConf) -> DataState:
     text = _get_dataset(
@@ -298,20 +197,13 @@ def get_data_state(config: OmegaConf) -> DataState:
         seed=0,
     )
 
-    audio = _get_dataset(
-        name=config.data.audio,
-        mode="audio",
+    audio = _get_extracted_features_dataset(
+        path=config.data.features_path,
         split="train",
-        cache_dir=config.data.cache_dir,
-        block_size=config.model.length,
-        num_proc=config.data.num_workers,
-        batch_size=config.training.batch_size,
-        ngpus=config.compute.ngpus,
-        codec_name=config.data.codec_name,
+        max_length=config.model.length,
         supervised=config.data.supervised,
-        seed=1,
+        seed=0,
     )
-
 
     test_text = _get_dataset(
         name=config.data.valid,
@@ -326,41 +218,37 @@ def get_data_state(config: OmegaConf) -> DataState:
         supervised=True,
     )
 
-    test_audio = _get_dataset(
-        name=config.data.valid,
-        mode="audio",
-        split="validation",
-        cache_dir=config.data.cache_dir,
-        block_size=config.model.length,
-        num_proc=config.data.num_workers,
-        batch_size=config.eval.batch_size,
-        ngpus=config.compute.ngpus,
-        codec_name=config.data.codec_name,
-        supervised=True,
+    test_audio = _get_extracted_features_dataset(
+        path=config.data.features_path,
+        labels="wrd",
+        split="valid",
+        max_length=config.model.length,
+        supervised=config.data.supervised,
+        seed=0,
     )
-
 
     return DataState(audio=audio, text=text, test_text=test_text, test_audio=test_audio)
 
 
-def collate_fn_unpaired(batch, length, mode="text"):
+def collate_fn_unpaired(batch, max_length, mode="text"):
+    input_ids = [item["input_ids"] for item in batch]
 
-    utt_ids = [item["id"] for item in batch]
+    sizes = [len(inputs) for inputs in input_ids]
+    length = max(sizes)
+    length = min(length, max_length)
 
-    fill_val = 2 if mode == "text" else 2048 # TODO hardcoding
+    fill_val = 2
 
-    input_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
+    collated_inp_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
+    padding_mask = torch.BoolTensor(len(input_ids), length).fill_(False)
 
-    for i, item in enumerate(batch):
-        assert len(item['input_ids']) < length
-        input_ids[i, :len(item['input_ids'])] = item['input_ids']
+    for i, (size, input_id) in enumerate(zip(sizes, input_ids)):
+        size = min(length, size)
+        collated_inp_ids[i, :size] = input_id[:size]
+        padding_mask[i, size:] = True
 
-    collated = {"input_ids": input_ids, "id":utt_ids}
-
-    if mode == "audio":
-        neural_features = torch.stack([i["neural_features"] for i in batch])
-        neural_features = neural_features.squeeze(1)
-        collated["neural_features"] = neural_features
+    assert collated_inp_ids.shape[0] == len(batch)
+    collated = {"input_ids": collated_inp_ids, "padding_mask": padding_mask}
 
     return collated
 
@@ -369,17 +257,17 @@ def get_data_loaders(
     config: OmegaConf,
     data_state: DataState,
 ) -> Tuple[Iterable, Iterable]:
-
     audio_loader = cycle_loader(
         DataLoader(
-            data_state.audio.dataset,
+            data_state.audio,
             batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
-            collate_fn=lambda x : collate_fn_unpaired(x, config.model.length, mode="audio"),
+            collate_fn=data_state.audio.collater,
             sampler=data_state.audio.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=config.data.num_workers > 0,
+            drop_last=True,
         )
     )
 
@@ -392,7 +280,8 @@ def get_data_loaders(
             num_workers=config.data.num_workers,
             pin_memory=True,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=config.data.num_workers > 0,
+            drop_last=True,
         )
     )
 
@@ -403,27 +292,31 @@ def get_data_loaders(
             collate_fn=lambda x: collate_fn_unpaired(x, config.model.length),
             num_workers=config.data.num_workers,
             pin_memory=True,
-            shuffle=False
+            shuffle=False,
         )
     )
     valid_loader_text = DataLoader(
-            data_state.test_text.dataset,
-            batch_size=config.eval.batch_size // config.compute.ngpus,
-            collate_fn=lambda x: collate_fn_unpaired(x, config.model.length),
-            num_workers=config.data.num_workers,
-            pin_memory=True,
-            shuffle=False,
-        )
+        data_state.test_text.dataset,
+        batch_size=config.eval.batch_size // config.compute.ngpus,
+        collate_fn=lambda x: collate_fn_unpaired(x, config.model.length),
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+        shuffle=False,
+    )
 
     valid_loader_audio = DataLoader(
-                data_state.test_audio.dataset,
-                batch_size=config.eval.batch_size // config.compute.ngpus,
-                collate_fn=lambda x : collate_fn_unpaired(x, config.model.length, mode="audio"),
-                num_workers=config.data.num_workers,
-                pin_memory=True,
-                shuffle=False,
-            )
+        data_state.test_audio,
+        batch_size=config.eval.batch_size // config.compute.ngpus,
+        collate_fn=data_state.test_audio.collater,
+        num_workers=config.data.num_workers,
+        pin_memory=True,
+        shuffle=False,
+    )
 
-    return iter(audio_loader), iter(text_loader), iter(valid_loader), valid_loader_text, valid_loader_audio
-
-
+    return (
+        iter(audio_loader),
+        iter(text_loader),
+        iter(valid_loader),
+        valid_loader_text,
+        valid_loader_audio,
+    )

@@ -30,7 +30,7 @@ def generate_transcription(
     model: nn.Module,
     step: int,
     vocab_size: int,
-    dataloader,
+    audioloader,
     tokenizer: PreTrainedTokenizer,
     normalize,
     rank: int,
@@ -41,6 +41,7 @@ def generate_transcription(
     sequence_length: int,
     sampling_steps: int,
     pad_id: int,
+    inference_block: int,
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
@@ -55,44 +56,29 @@ def generate_transcription(
     raw_hypotheses = []
     raw_references = []
 
-    for text_batch, audio_batch in tqdm(dataloader):
-        assert text_batch['id'] == audio_batch['id']
+    for audio_batch in tqdm(audioloader):
+        #assert text_batch["id"] == audio_batch["id"]
 
-        audio_embeddings = audio_batch["neural_features"].to(device)
-        audio_cache = model.build_audio_cache(audio_embeddings)
 
-        x_1 = text_batch["input_ids"]
-        x_0 = source_distribution.sample_like(x_1).to(device)
+        speech = audio_batch["input_ids"].to(device)
+        padding_mask_speech = audio_batch["padding_mask"].to(device)
 
-        class WrappedASRModel(ModelWrapper):
-            def forward(self, x: Tensor, t: Tensor, **extras) -> Tensor:
-                # Note: logit's precision is important.
-                probs = torch.softmax(self.model(x_t=x, time=t, audio_embeddings=audio_embeddings, **audio_cache, cfg_strength=cfg_strength).float(), -1)
-                return probs
-
-        wrapped_probability_denoiser = WrappedASRModel(model)
-
-        solver = MixtureDiscreteEulerSolver(
-            model=wrapped_probability_denoiser,
-            path=path,
-            vocabulary_size=vocab_size + add_token,
+        # direct data prediction
+        t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon)
+        probs = torch.softmax(
+            model(
+                x_t_speech=speech,
+                padding_mask_speech=padding_mask_speech,
+                time=t,
+                inference_block=inference_block,
+            ).float(),
+            -1,
         )
+        trn_hyp_ids = probs.argmax(dim=-1).cpu().tolist()
 
-        time_grid = torch.linspace(0.0,1.0-time_epsilon, sampling_steps)
-        sample = solver.sample(
-            x_init=x_0,
-            step_size=None,
-            verbose=False,
-            dtype_categorical=dtype_categorical,
-            time_grid=time_grid,
-            return_intermediates=True,
-        )
 
-        text_sample = sample[-1]
-        text_ref = text_batch["input_ids"]
-
-        for hyp_text_ids, ref_text_ids, utt_id in zip(
-            text_sample, text_ref, text_batch["id"]
+        for ref_text, hyp_text_ids, utt_id in zip(
+            audio_batch["target"], trn_hyp_ids, audio_batch["id"]
         ):
             text = tokenizer.decode(hyp_text_ids, skip_special_tokens=True)
             text = normalize(text)
@@ -100,11 +86,11 @@ def generate_transcription(
             trn_hyp = text + f" ({utt_id})\n"
             hyp_trn.append(trn_hyp)
 
-            text = tokenizer.decode(ref_text_ids, skip_special_tokens=True)
-            text = normalize(text)
+            text = normalize(ref_text)
             raw_references.append(text)
             trn_ref = text + f" ({utt_id})\n"
             ref_trn.append(trn_ref)
+
 
     if sample_dir is not None:
         hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"
@@ -112,13 +98,17 @@ def generate_transcription(
 
         hyp_file_name.parents[0].mkdir(exist_ok=True, parents=True)
 
-        with open(hyp_file_name, "w", encoding='utf-8') as hyp_file, open(ref_file_name, "w", encoding='utf-8') as ref_file:
+        with (
+            open(hyp_file_name, "w", encoding="utf-8") as hyp_file,
+            open(ref_file_name, "w", encoding="utf-8") as ref_file,
+        ):
             for hyp, ref in zip(hyp_trn, ref_trn):
                 hyp_file.write(hyp)
                 ref_file.write(ref)
 
-    for hyp in hyp_trn[:10]:
+    for hyp, ref in zip(hyp_trn[:10], ref_trn[:10]):
         print(hyp)
+        print(ref)
 
     cer = None
     if raw_references and raw_hypotheses:

@@ -11,12 +11,10 @@ from typing import Optional
 import torch
 from flow_matching.loss import MixturePathGeneralizedKL
 from flow_matching.path import ProbPath
-from flow_matching.utils import categorical
 from omegaconf.dictconfig import DictConfig
 from torch import nn, Tensor
 from torch.cuda.amp import GradScaler
 
-from torch.utils.data import DataLoader
 from utils.logging import TrainLogger
 
 from .flow import SourceDistribution
@@ -79,12 +77,6 @@ def optimization_step(
 
     optimizer.zero_grad()
 
-    # source soft update
-    # with torch.no_grad():
-    #     for source_param, param in zip(state.source_model.parameters(), state.model.parameters()):
-    #         source_param.data.copy_(source_param.data * (1.0 - optim_params.source_soft_update_weight) + param.data * optim_params.source_soft_update_weight)
-
-
 
 def step(
     state: TrainState,
@@ -112,20 +104,25 @@ def step(
     else:
         state.eval()
 
-    audio_embeddings = audio_batch["neural_features"].to(device)
-    audio_embeddings_text = audio_embeddings if supervised else torch.zeros_like(audio_embeddings)
-    audio_embeddings = torch.cat([audio_embeddings_text, audio_embeddings])
-
     x_1 = text_batch["input_ids"].to(device)
-    x_1_speech = audio_batch["input_ids"].to(device) # speech tokens
+    x_1_speech = audio_batch["input_ids"].to(device)  # speech tokens
+
+    x_1_padding = text_batch["padding_mask"].to(device)
+    x_1_speech_padding = audio_batch["padding_mask"].to(device)
 
     x_0 = source_distribution.sample_like(x_1)
     x_0_speech = source_distribution_speech.sample_like(x_1_speech)
 
     t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
 
+    assert x_1.shape[0] == x_1_speech.shape[0], f"{x_1.shape[0]} should equal {x_1_speech.shape[0]}"
+
     path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
     path_sample_speech = path.sample(t=t, x_0=x_0_speech, x_1=x_1_speech)
+
+    path_sample.x_t *= ~x_1_padding
+    path_sample_speech.x_t *= ~x_1_speech_padding
+
 
     if not supervised:
         assert audio_batch["id"] != text_batch["id"]
@@ -134,21 +131,34 @@ def step(
     ctx = nullcontext() if training else torch.no_grad()
 
     with ctx:
-
-        logits, logits_speech = state.model(x_t=path_sample.x_t, x_t_speech=path_sample_speech.x_t, time=path_sample.t, audio_embeddings=audio_embeddings, codebook_prob=codebook_prob)
+        logits, logits_speech = state.model(
+            x_t_text=path_sample.x_t,
+            x_t_speech=path_sample_speech.x_t,
+            time=path_sample.t,
+            codebook_prob=codebook_prob,
+            padding_mask_text=x_1_padding,
+            padding_mask_speech=x_1_speech_padding,
+        )
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
-            loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1))
-            loss_full_speech = loss_fn(logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1))
+            assert logits.dtype == logits_speech.dtype == torch.float
+            assert x_1.dtype == x_1_speech.dtype == torch.long
+
+            loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_padding.flatten(0,1)
+            loss_full_speech = loss_fn(
+                logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1)
+            ) * ~x_1_speech_padding.flatten(0,1)
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             # TODO try KLD at some point
-            print("KLD loss not supported for now")
             loss_full = loss_fn(
-                    logits=logits, x_1=x_1, x_t=path_sample.x_t[:, :128], t=path_sample.t
+                logits=logits, x_1=x_1, x_t=path_sample.x_t[:, :128], t=path_sample.t
             )
             loss_full_speech = loss_fn(
-                logits=logits_speech, x_1=x_1_speech, x_t=path_sample.x_t, t=path_sample.t
+                logits=logits_speech,
+                x_1=x_1_speech,
+                x_t=path_sample.x_t,
+                t=path_sample.t,
             )
         else:
             raise ValueError("Invalid loss function")
@@ -156,13 +166,10 @@ def step(
         loss_full = loss_full.reshape(x_1.shape)
         loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
 
+    loss_text = loss_full.sum() / x_1_padding.sum()
+    loss_speech = loss_full_speech.sum() / x_1_speech_padding.sum()
+    loss = loss_text + loss_speech
 
-    if state.step < uncond_warmup // 2:
-        loss_speech_weight = 0
-    else:
-        loss_speech_weight = ((state.step - (uncond_warmup // 2)) / (uncond_warmup // 2)) if state.step < uncond_warmup else 1 # TODO undo hardcoding
-
-    loss = loss_full.mean()  + loss_full_speech.mean() * loss_speech_weight 
 
     # Optimization step (only if training=true)
     if training:
@@ -176,12 +183,8 @@ def step(
             logger=logger,
         )
 
-    loss_full = loss_full.detach()
-    loss_full_speech = loss_full_speech.detach()
     return (
         loss.detach(),
-        loss_full.mean(),
-        loss_full[x_1 != pad_id].mean(),
-        loss_full_speech.mean(),
-        loss_full_speech[x_1_speech != 2048].mean(), # TODO undo hard coding
+        loss_text.detach(),
+        loss_speech.detach(),
     )

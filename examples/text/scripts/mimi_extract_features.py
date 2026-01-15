@@ -9,7 +9,6 @@ import os
 import os.path as osp
 import tqdm
 import torch
-import torch.nn.functional as F
 import torchaudio
 from shutil import copyfile
 from transformers import MimiModel, AutoFeatureExtractor
@@ -30,17 +29,15 @@ def get_parser():
     # parser.add_argument('--layer', type=int, default=14, help='which layer to use')
     # fmt: on
 
-
     return parser
 
 
 class MimiFeatureReader(object):
     def __init__(self):
-
         self.model = MimiModel.from_pretrained("kyutai/mimi").to("cuda").eval()
         self.feature_extractor = AutoFeatureExtractor.from_pretrained("kyutai/mimi")
 
-        self.resample = torchaudio.transforms.Resample(16000,24000)
+        self.resample = torchaudio.transforms.Resample(16000, 24000)
 
     def read_audio(self, fname):
         """Load an audio file and return PCM along with the sample rate"""
@@ -55,12 +52,19 @@ class MimiFeatureReader(object):
             audio_sample = torch.from_numpy(x).float()
             audio_sample = self.resample(audio_sample)
             # pre-process the inputs
-            inputs = self.feature_extractor(raw_audio=audio_sample, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="pt")
+            inputs = self.feature_extractor(
+                raw_audio=audio_sample,
+                sampling_rate=self.feature_extractor.sampling_rate,
+                return_tensors="pt",
+            )
             inputs = inputs["input_values"].cuda()
 
             # explicitly encode the audio inputs
-            encoder_outputs = self.model.encode(inputs, num_quantizers=1).audio_codes[0,0].cpu()
+            encoder_outputs = (
+                self.model.encode(inputs, num_quantizers=1).audio_codes[0, 0].cpu()
+            )
             return encoder_outputs
+
 
 def get_iterator(args):
     with open(osp.join(args.data, args.split) + ".tsv", "r") as fp:
@@ -77,7 +81,7 @@ def get_iterator(args):
 
                 basename = osp.basename(fname)
                 file_id = osp.splitext(basename)[0]
-                yield mimi_feats,file_id
+                yield mimi_feats, file_id
 
     return iterate, num
 
@@ -106,7 +110,7 @@ def main():
     generator, num = get_iterator(args)
     iterator = generator()
 
-    with open(save_path + ".lengths", "w") as l_f, open(save_path + ".ids","w") as i_f:
+    with open(save_path + ".lengths", "w") as l_f, open(save_path + ".ids", "w") as i_f:
         for mimi_feats, file_id in tqdm.tqdm(iterator, total=num):
             print(len(mimi_feats), file=l_f)
             print(file_id, file=i_f)

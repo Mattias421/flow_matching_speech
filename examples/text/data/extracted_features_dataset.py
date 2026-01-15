@@ -24,7 +24,6 @@ class ExtractedFeaturesDataset(Dataset):
         min_length=3,
         max_length=None,
         labels=None,
-        label_dict=None,
         shuffle=True,
         sort_by_length=True,
         aux_target_postfix=None,
@@ -35,20 +34,17 @@ class ExtractedFeaturesDataset(Dataset):
         self.max_length = max_length
         self.shuffle = shuffle
         self.sort_by_length = sort_by_length
-        self.label_dict = label_dict
-
-        if labels is not None:
-            assert label_dict is not None
 
         self.sizes = []
         self.offsets = []
         self.labels = []
-        self.ids = []
         self.aux_tgt = None
 
         path = os.path.join(path, split)
         data_path = path
         self.data = np.load(data_path + ".npy", mmap_mode="r")
+        with open(data_path + ".ids", "r") as f:
+            self.ids = f.readlines()
 
         offset = 0
         skipped = 0
@@ -56,12 +52,15 @@ class ExtractedFeaturesDataset(Dataset):
         if not os.path.exists(path + f".{labels}"):
             labels = None
 
-        with open(data_path + ".lengths", "r") as len_f, open(
-            path + f".{labels}", "r"
-        ) if labels is not None else contextlib.ExitStack() as lbl_f:
+        with (
+            open(data_path + ".lengths", "r") as len_f,
+            open(path + f".{labels}", "r")
+            if labels is not None
+            else contextlib.ExitStack() as lbl_f,
+        ):
             for line in len_f:
                 length = int(line.rstrip())
-                lbl = None if labels is None else next(lbl_f).rstrip().split()
+                lbl = None if labels is None else next(lbl_f).strip()
                 if length >= min_length and (
                     max_length is None or length <= max_length
                 ):
@@ -73,16 +72,17 @@ class ExtractedFeaturesDataset(Dataset):
 
         self.sizes = np.asarray(self.sizes)
         self.offsets = np.asarray(self.offsets)
-        
+
         if aux_target_postfix is not None:
-            if not os.path.exists(path+f".{aux_target_postfix}"):
+            if not os.path.exists(path + f".{aux_target_postfix}"):
                 logger.info(f"auxaliry target for {split} missing")
             else:
-                with open(path+f".{aux_target_postfix}", "r") as t_f:
+                with open(path + f".{aux_target_postfix}", "r") as t_f:
                     self.aux_tgt = [
-                        torch.LongTensor(list(map(int,seg.strip().split())))\
-                                    for seg in t_f]
- 
+                        torch.LongTensor(list(map(int, seg.strip().split())))
+                        for seg in t_f
+                    ]
+
         logger.info(f"loaded {len(self.offsets)}, skipped {skipped} samples")
 
     def __getitem__(self, index):
@@ -90,14 +90,11 @@ class ExtractedFeaturesDataset(Dataset):
         end = self.sizes[index] + offset
         feats = torch.from_numpy(self.data[offset:end].copy()).float()
 
-        res = {"id": index, "features": feats}
+        res = {"id": self.ids[index], "features": feats}
         if len(self.labels) > 0:
-            res["target"] = self.label_dict.encode_line(
-                self.labels[index],
-                line_tokenizer=lambda x: x,
-                append_eos=False,
-            )
-        
+            res["target"] = self.labels[index]
+
+
         if self.aux_tgt:
             res["aux_target"] = self.aux_tgt[index]
 
@@ -114,37 +111,46 @@ class ExtractedFeaturesDataset(Dataset):
         sizes = [len(s) for s in features]
 
         assert max(sizes) <= self.max_length
-        target_size = self.max_length
+        target_size = max(sizes)
 
-        collated_features = features[0].new_zeros(
-            len(features), target_size, features[0].size(-1)
-        )
-        padding_mask = torch.BoolTensor(collated_features.shape[:-1]).fill_(False)
+        if len(features[0].shape) == 2:
+            collated_features = features[0].new_zeros(
+                len(features), target_size, features[0].size(-1), dtype=torch.long,
+            )
+            padding_mask = torch.BoolTensor(collated_features.shape[:-1]).fill_(False)
+        elif len(features[0].shape) == 1:
+            collated_features = features[0].new_zeros(
+                len(features),
+                target_size,
+                dtype=torch.long,
+            )
+            padding_mask = torch.BoolTensor(collated_features.shape).fill_(False)
+
         for i, (f, size) in enumerate(zip(features, sizes)):
             collated_features[i, :size] = f
             padding_mask[i, size:] = True
 
+        assert collated_features.dtype == torch.long
+
         res = {
-            "id": torch.LongTensor([s["id"] for s in samples]),
-            "net_input": {"input_ids": collated_features, "padding_mask": padding_mask},
+            "id": [s["id"].strip() for s in samples],
+            "input_ids": collated_features,
+            "padding_mask": padding_mask,
         }
 
-        # if len(self.labels) > 0:
-        #     target = data_utils.collate_tokens(
-        #         [s["target"] for s in samples],
-        #         pad_idx=self.label_dict.pad(),
-        #         left_pad=False,
-        #     )
-        #     res["target"] = target
-        
+        if len(self.labels) > 0:
+            res["target"] = [s["target"] for s in samples]
+
+
+
         if self.aux_tgt:
             idxs = torch.nn.utils.rnn.pad_sequence(
                 [s["aux_target"] for s in samples],
                 batch_first=True,
                 padding_value=-1,
             )
-            res["net_input"]["aux_target"] = idxs
-        
+            res["aux_target"] = idxs
+
         return res
 
     def num_tokens(self, index):
