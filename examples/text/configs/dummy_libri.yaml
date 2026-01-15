@@ -39,7 +39,7 @@ training:
   partial_loss_weight: 1
   uncond_warmup: 500
   pad_weight: 1.0
-  codebook_prob: 0.5
+  codebook_prob: 0.3
 
 eval:
   batch_size: 8

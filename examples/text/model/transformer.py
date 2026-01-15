@@ -237,9 +237,6 @@ class Transformer(nn.Module):
 
         self.rotary_emb = rotary.Rotary(dim=config.hidden_size // config.n_heads)
 
-        # Preserve embeddings
-        self.preserve_embeddings = nn.Embedding(2, config.hidden_size)
-
         self.blocks = nn.ModuleList(
             [
                 DDiTBlock(
@@ -258,7 +255,7 @@ class Transformer(nn.Module):
             vq_dim=config.hidden_size,
             time_first=True,
             combine_groups=False,
-            groups=2,
+            groups=3,
             temp=(2, 0.5, 0.999995),
         )
 

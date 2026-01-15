@@ -20,12 +20,11 @@ logging:
   group: null
 
 data:
-  train: librispeech
-  audio: librispeech
-  text: librispeech
-  valid: librispeech
+  text: librispeech_lm
+  valid: librispeech_lm
   cache_dir: /path/to/cache/dir
-  num_workers: 8
+  features_path: /path/to/features/dir
+  num_workers: 1
   debug: false
   codec_name: mimi # [focalcodec, mimi]
   train_percent: 100
@@ -42,7 +41,7 @@ training:
   partial_loss_weight: 1
   uncond_warmup: 10000
   pad_weight: 1.0
-  codebook_prob: 0.0
+  codebook_prob: 0.3
 
 eval:
   batch_size: 32
@@ -51,6 +50,7 @@ eval:
   perplexity_batch_size: 128
   n_gen_iter: 8
   kenlm_path: /path/to/kenlm
+  inference_block: 1
 
 optim:
   weight_decay: 0.0007
@@ -70,7 +70,7 @@ optim:
   loss_speech_weight: 0.25
 
 flow:
-  source_distribution: asr  # [asr]
+  source_distribution: mask  # [asr]
   loss_function: cross_entropy  # [cross_entropy, generalized_kl]
   exponent: 1.
   scheduler_type: polynomial
@@ -86,7 +86,8 @@ model:
   dropout: 0.1
   compile: True
   whisper_dim: 768
-  n_quantizers: 50
+  vocab_size_speech: 2048
+  n_quantizers: 100
 
 hydra_dir: /path/to/hydra/dir
 
