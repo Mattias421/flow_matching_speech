@@ -19,7 +19,7 @@ data:
   text: librispeech_lm
   valid: librispeech_lm
   cache_dir: /path/to/cache/dir
-  features_path: /store/store4/data/LibriSpeech-Clean-NoSil/features/mimi/
+  features_path: /store/store4/data/LibriSpeech-Clean-NoSil/features/mimi/8hr/
   num_workers: 0
   max_decode_ratio: 1
   debug: false
@@ -29,11 +29,11 @@ data:
   text_tokenizer: speecht5
 
 training:
-  batch_size: 16
+  batch_size: 32
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 50000000
-  cer_freq: 1000
+  cer_freq: 5000
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
@@ -54,7 +54,7 @@ eval:
 optim:
   weight_decay: 0.03
   optimizer: AdamW
-  lr: 1e-3
+  lr: 1e-4
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
@@ -62,14 +62,14 @@ optim:
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false
-  n_iters: 20000
+  n_iters: 100000
   log_lr_every: ${logging.log_lr_every}
   source_soft_update_weight: 1.0
   loss_speech_weight: 0.25
 
 flow:
   source_distribution: mask # [uniform, mask]
-  loss_function: cross_entropy  # [cross_entropy, generalized_kl]
+  loss_function: generalized_kl  # [cross_entropy, generalized_kl]
   exponent: 1.
   scheduler_type: polynomial
   sampling_steps: 64

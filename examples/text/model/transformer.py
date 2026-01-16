@@ -227,6 +227,7 @@ class Transformer(nn.Module):
         self.vocab_size = vocab_size
 
         add_token = 1 if masked else 0
+        self.masked = masked
 
         self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
         self.vocab_embed_speech = nn.Embedding(
@@ -356,9 +357,16 @@ class Transformer(nn.Module):
                 z = z * ~padding_mask[batch_size:, :, None]
                 z = z[:,:x_t_speech.shape[-1]]
 
+                if self.masked:
+                    x_out[:,:,-1] = 0.0
+                    z[:,:,-1] = 0.0
+
             return x_out, z
         else:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x, c=c)
                 x_out = x_out * ~padding_mask[:, :, None]
+
+                if self.masked:
+                    x_out[:,:,-1] = 0.0
             return x_out
