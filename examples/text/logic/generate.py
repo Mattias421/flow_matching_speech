@@ -63,7 +63,6 @@ def generate_transcription(
         speech = audio_batch["input_ids"].to(device)
         padding_mask_speech = audio_batch["padding_mask"].to(device)
 
-        # direct data prediction
         t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon)
         probs = torch.softmax(
             model(
@@ -74,6 +73,20 @@ def generate_transcription(
             ).float(),
             -1,
         )
+
+        # direct data prediction
+        for i in range(64):
+            t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon)
+            probs += torch.softmax(
+                model(
+                    x_t_speech=speech,
+                    padding_mask_speech=padding_mask_speech,
+                    time=t,
+                    inference_block=inference_block,
+                ).float(),
+                -1,
+            )
+
         trn_hyp_ids = probs.argmax(dim=-1).cpu().tolist()
 
 

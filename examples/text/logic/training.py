@@ -150,16 +150,16 @@ def step(
             ) * ~x_1_speech_padding.flatten(0,1)
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
-            # TODO try KLD at some point
             loss_full = loss_fn(
-                logits=logits, x_1=x_1, x_t=path_sample.x_t[:, :128], t=path_sample.t
-            )
+                logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
+            ) * ~x_1_padding
+
             loss_full_speech = loss_fn(
                 logits=logits_speech,
                 x_1=x_1_speech,
-                x_t=path_sample.x_t,
+                x_t=path_sample_speech.x_t,
                 t=path_sample.t,
-            )
+            ) * ~x_1_speech_padding
         else:
             raise ValueError("Invalid loss function")
 

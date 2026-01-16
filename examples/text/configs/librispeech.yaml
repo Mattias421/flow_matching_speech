@@ -103,7 +103,7 @@ hydra:
     partition: gpu,gpu-h100,gpu-h100-nvl
     qos: gpu:1
     gpus_per_node: ${compute.ngpus}
-    cpus_per_task: 8
+    cpus_per_task: 1
     mem_gb: null
     mem_per_cpu: null
     mem_per_gpu: null
@@ -125,5 +125,15 @@ hydra:
     params:
         optim.lr: tag(log, interval(0.0001, 0.0005))
         optim.warmup: choice(250,500,1000,1500,2000)
+
+    # other params to consider
+    # uniform vs mask source
+    # quantizer params (n quantizers, prob, even groups)
+    # blocks
+    #
+    # eval params:
+    # inference_block
+    # inference strategy
+    # t cond weighting
 
 
