@@ -229,7 +229,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 time_epsilon=time_epsilon,
                 pad_id=pad_id,
                 inference_block=cfg.eval.inference_block,
-                cfg_strength=cfg.eval.cfg_strength,
             )
 
             logger.log_metric(

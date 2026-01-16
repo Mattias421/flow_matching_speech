@@ -32,7 +32,7 @@ data:
   text_tokenizer: speecht5
 
 training:
-  batch_size: 64
+  batch_size: 254   
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 5000000
@@ -64,7 +64,6 @@ optim:
   eta_min_ratio: 0.1
   fused: false
   n_iters: 100000
-  log_lr_every: ${logging.log_lr_every}
   log_lr_every: ${logging.log_lr_every}
   source_soft_update_weight: 0.05
   loss_speech_weight: 0.25
@@ -125,5 +124,6 @@ hydra:
     params:
         optim.lr: tag(log, interval(0.0001, 0.0005))
         optim.warmup: choice(250,500,1000,1500,2000)
+        flow.source_distribution: choice(mask,uniform)
 
 

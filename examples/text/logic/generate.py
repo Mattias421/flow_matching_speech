@@ -45,7 +45,6 @@ def generate_transcription(
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
-    cfg_strength: float = 1.0,
 ) -> Tensor:
     add_token = 1 if source_distribution.masked else 0
 
