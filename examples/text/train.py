@@ -134,6 +134,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             supervised=cfg.data.supervised,
             uncond_warmup=cfg.training.uncond_warmup,
             codebook_prob=cfg.training.codebook_prob,
+            loss_speech_weight=cfg.optim.loss_speech_weight,
         )
 
         train_loss_values.append(
@@ -196,6 +197,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 pad_id=pad_id,
                 supervised=cfg.data.supervised,
                 uncond_warmup=cfg.training.uncond_warmup,
+                loss_speech_weight=cfg.optim.loss_speech_weight,
             )
 
             dist.all_reduce(eval_loss, dist.ReduceOp.AVG)

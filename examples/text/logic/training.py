@@ -96,6 +96,7 @@ def step(
     supervised: bool = False,
     uncond_warmup: int = 10000,
     codebook_prob: float = 0.0,
+    loss_speech_weight: float = 1.0,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -168,7 +169,7 @@ def step(
 
     loss_text = loss_full.sum() / x_1_padding.sum()
     loss_speech = loss_full_speech.sum() / x_1_speech_padding.sum()
-    loss = loss_text + loss_speech
+    loss = loss_text + loss_speech * loss_speech_weight
 
 
     # Optimization step (only if training=true)

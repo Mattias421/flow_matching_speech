@@ -118,13 +118,22 @@ hydra:
     direction: minimize
     study_name: ${study_name}
     # storage: null
-    n_trials: 36
-    n_jobs: 12
+    n_trials: 128
+    n_jobs: 256
     # max_failure_rate: 0.5
     params:
-        optim.lr: tag(log, interval(0.0001, 0.0005))
+        optim.lr: tag(log, interval(0.00001, 0.001))
         optim.warmup: choice(250,500,1000,1500,2000)
+        optim.beta1: interval(0.8,0.99)
+        optim.beta2: tag(log, interval(0.99,0.9999))
         flow.source_distribution: choice(mask,uniform)
+        flow.loss_function: choice(generalized_kl,cross_entropy)
+        training.codebook_prob: interval(0.0,1.0)
+        model.n_quantizers: interval(30,300)
+        optim.loss_speech_weight: interval(0.1,1.0)
+        model.n_blocks: choice(2,4)
+        model.dropout: interval(0.0,0.5)
+        optim.weight_decay: tag(log, interval(0.01,0.1))
 
     # other params to consider
     # uniform vs mask source
@@ -135,5 +144,6 @@ hydra:
     # inference_block
     # inference strategy
     # t cond weighting
+    # speech weight
 
 
