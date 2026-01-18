@@ -65,7 +65,7 @@ optim:
   n_iters: 100000
   log_lr_every: ${logging.log_lr_every}
   source_soft_update_weight: 1.0
-  loss_speech_weight: 0.25
+  loss_speech_weight: 0.5
 
 flow:
   source_distribution: mask # [uniform, mask]
