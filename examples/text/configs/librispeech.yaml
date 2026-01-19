@@ -32,7 +32,7 @@ data:
   text_tokenizer: speecht5
 
 training:
-  batch_size: 254   
+  batch_size: 32
   snapshot: 500
   eval_freq: 500
   perplexity_freq: 5000000
@@ -79,7 +79,7 @@ flow:
 model:
   hidden_size: 768
   cond_dim: 128
-  length: 128
+  length: 512
   n_blocks: 2
   n_heads: 12
   dropout: 0.1
@@ -118,7 +118,7 @@ hydra:
     direction: minimize
     study_name: ${study_name}
     # storage: null
-    n_trials: 128
+    n_trials: 256
     n_jobs: 256
     # max_failure_rate: 0.5
     params:

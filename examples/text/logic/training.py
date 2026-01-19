@@ -167,8 +167,8 @@ def step(
         loss_full = loss_full.reshape(x_1.shape)
         loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
 
-    loss_text = loss_full.sum() / x_1_padding.sum()
-    loss_speech = loss_full_speech.sum() / x_1_speech_padding.sum()
+    loss_text = loss_full.sum() / ~x_1_padding.sum()
+    loss_speech = loss_full_speech.sum() / ~x_1_speech_padding.sum()
     loss = loss_text + loss_speech * loss_speech_weight
 
 
