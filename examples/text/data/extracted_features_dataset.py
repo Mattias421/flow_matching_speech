@@ -12,6 +12,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from .data import collate_fn_unpaired
+
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ class ExtractedFeaturesDataset(Dataset):
         shuffle=True,
         sort_by_length=True,
         aux_target_postfix=None,
+        tokenizer=None,
     ):
         super().__init__()
 
@@ -94,6 +97,9 @@ class ExtractedFeaturesDataset(Dataset):
         if len(self.labels) > 0:
             res["target"] = self.labels[index]
 
+            if self.tokenizer is not None:
+                res["input_ids"] = self.tokenizer(res["target"])
+
 
         if self.aux_tgt:
             res["aux_target"] = self.aux_tgt[index]
@@ -140,8 +146,9 @@ class ExtractedFeaturesDataset(Dataset):
 
         if len(self.labels) > 0:
             res["target"] = [s["target"] for s in samples]
-
-
+            collate_toks = collate_fn_unpaired(samples, self.max_length)
+            res["input_ids"] = collate_toks["input_ids"]
+            res["padding_mask_text"] = collate_toks["padding_mask"]
 
         if self.aux_tgt:
             idxs = torch.nn.utils.rnn.pad_sequence(

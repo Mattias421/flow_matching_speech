@@ -115,11 +115,22 @@ def _get_extracted_features_dataset(
     supervised: bool,
     labels: str = None,
 ):
+    processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+
+    tokenizer = SpeechT5Tokenizer.from_pretrained("microsoft/speecht5_tts")
+
+    def get_tokens(text):
+        text = processor.tokenizer.basic_normalize(text)
+        text_tokens = tokenizer(text, return_attention_mask=False)
+        return text_tokens
+
+
     dataset = ExtractedFeaturesDataset(
         path=path,
         split=split,
         max_length=max_length,
         labels=labels,
+        tokenizer=get_tokens,
     )
     sampler = (
         StatefulDistributedSampler(dataset=dataset, seed=seed)
@@ -197,13 +208,6 @@ def get_data_state(config: OmegaConf) -> DataState:
         seed=0,
     )
 
-    audio = _get_extracted_features_dataset(
-        path=config.data.features_path,
-        split="train",
-        max_length=config.model.length,
-        supervised=config.data.supervised,
-        seed=0,
-    )
 
     test_text = _get_dataset(
         name=config.data.valid,
@@ -216,6 +220,14 @@ def get_data_state(config: OmegaConf) -> DataState:
         ngpus=config.compute.ngpus,
         codec_name=config.data.codec_name,
         supervised=True,
+    )
+
+    audio = _get_extracted_features_dataset(
+        path=config.data.features_path,
+        split="train",
+        max_length=config.model.length,
+        supervised=config.data.supervised,
+        seed=0,
     )
 
     test_audio = _get_extracted_features_dataset(
