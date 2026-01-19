@@ -45,6 +45,7 @@ def generate_transcription(
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
+    time_conditioning: bool = True,
 ) -> Tensor:
     add_token = 1 if source_distribution.masked else 0
 
@@ -74,8 +75,23 @@ def generate_transcription(
         )
 
         # direct data prediction
-        for i in range(64):
-            t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon)
+        if time_conditioning:
+            # TODO this isn't quite implemented correctly yet
+            for i in range(64):
+                t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon) * (i / 64)
+                probs += torch.softmax(
+                    model(
+                        x_t_speech=speech,
+                        padding_mask_speech=padding_mask_speech,
+                        time=t,
+                        inference_block=inference_block,
+                    ).float(),
+                    -1,
+                )
+
+            trn_hyp_ids = probs.argmax(dim=-1).cpu().tolist()
+        else:
+            t = torch.zeros(speech.shape[0], device=speech.device)
             probs += torch.softmax(
                 model(
                     x_t_speech=speech,

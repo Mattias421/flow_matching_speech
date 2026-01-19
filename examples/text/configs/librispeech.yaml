@@ -42,6 +42,7 @@ training:
   uncond_warmup: 10000
   pad_weight: 1.0
   codebook_prob: 0.3
+  time_conditioning: true
 
 eval:
   batch_size: 32
@@ -87,6 +88,7 @@ model:
   whisper_dim: 768
   vocab_size_speech: 2048
   n_quantizers: 100
+  quantizer_groups: 3
 
 hydra_dir: /path/to/hydra/dir
 

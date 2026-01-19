@@ -256,7 +256,7 @@ class Transformer(nn.Module):
             vq_dim=config.hidden_size,
             time_first=True,
             combine_groups=False,
-            groups=3,
+            groups=config.quantizer_groups,
             temp=(2, 0.5, 0.999995),
         )
 

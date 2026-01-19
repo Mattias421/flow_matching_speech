@@ -97,6 +97,7 @@ def step(
     uncond_warmup: int = 10000,
     codebook_prob: float = 0.0,
     loss_speech_weight: float = 1.0,
+    time_conditioning: bool = True,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -132,10 +133,15 @@ def step(
     ctx = nullcontext() if training else torch.no_grad()
 
     with ctx:
+        if time_conditioning:
+            time=path_sample.t,
+        else:
+            time=torch.zeros_like(path_sample.t)
+
         logits, logits_speech = state.model(
             x_t_text=path_sample.x_t,
             x_t_speech=path_sample_speech.x_t,
-            time=path_sample.t,
+            time=time,
             codebook_prob=codebook_prob,
             padding_mask_text=x_1_padding,
             padding_mask_speech=x_1_speech_padding,
@@ -167,8 +173,8 @@ def step(
         loss_full = loss_full.reshape(x_1.shape)
         loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
 
-    loss_text = loss_full.sum() / ~x_1_padding.sum()
-    loss_speech = loss_full_speech.sum() / ~x_1_speech_padding.sum()
+    loss_text = loss_full.sum() / (~x_1_padding).sum()
+    loss_speech = loss_full_speech.sum() / (~x_1_speech_padding).sum()
     loss = loss_text + loss_speech * loss_speech_weight
 
 
