@@ -18,7 +18,7 @@ from transformers import SpeechT5Tokenizer
 from transformers import WhisperProcessor
 
 from data.tokenizer import wt_detokenizer
-from data.utils import cycle_loader, StatefulDistributedSampler
+from data.utils import cycle_loader, StatefulDistributedSampler, collate_fn_unpaired
 from data.extracted_features_dataset import ExtractedFeaturesDataset
 import logging
 
@@ -122,7 +122,7 @@ def _get_extracted_features_dataset(
     def get_tokens(text):
         text = processor.tokenizer.basic_normalize(text)
         text_tokens = tokenizer(text, return_attention_mask=False)
-        return text_tokens
+        return torch.tensor(text_tokens['input_ids'])
 
 
     dataset = ExtractedFeaturesDataset(
@@ -225,6 +225,7 @@ def get_data_state(config: OmegaConf) -> DataState:
     audio = _get_extracted_features_dataset(
         path=config.data.features_path,
         split="train",
+        labels="wrd",
         max_length=config.model.length,
         supervised=config.data.supervised,
         seed=0,
@@ -242,27 +243,6 @@ def get_data_state(config: OmegaConf) -> DataState:
     return DataState(audio=audio, text=text, test_text=test_text, test_audio=test_audio)
 
 
-def collate_fn_unpaired(batch, max_length, mode="text"):
-    input_ids = [item["input_ids"] for item in batch]
-
-    sizes = [len(inputs) for inputs in input_ids]
-    length = max(sizes)
-    length = min(length, max_length)
-
-    fill_val = 2
-
-    collated_inp_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
-    padding_mask = torch.BoolTensor(len(input_ids), length).fill_(False)
-
-    for i, (size, input_id) in enumerate(zip(sizes, input_ids)):
-        size = min(length, size)
-        collated_inp_ids[i, :size] = input_id[:size]
-        padding_mask[i, size:] = True
-
-    assert collated_inp_ids.shape[0] == len(batch)
-    collated = {"input_ids": collated_inp_ids, "padding_mask": padding_mask}
-
-    return collated
 
 
 def get_data_loaders(

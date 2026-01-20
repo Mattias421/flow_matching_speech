@@ -14,6 +14,7 @@ from flow_matching.path import ProbPath
 from omegaconf.dictconfig import DictConfig
 from torch import nn, Tensor
 from torch.cuda.amp import GradScaler
+import torch.nn.functional as F
 
 from utils.logging import TrainLogger
 
@@ -106,10 +107,14 @@ def step(
     else:
         state.eval()
 
-    x_1 = text_batch["input_ids"].to(device)
-    x_1_speech = audio_batch["input_ids"].to(device)  # speech tokens
+    if supervised:
+        x_1 = audio_batch["input_ids_text"].to(device)
+        x_1_padding = audio_batch["padding_mask_text"].to(device)
+    else:
+        x_1 = text_batch["input_ids"].to(device)
+        x_1_padding = text_batch["padding_mask"].to(device)
 
-    x_1_padding = text_batch["padding_mask"].to(device)
+    x_1_speech = audio_batch["input_ids"].to(device)  # speech tokens
     x_1_speech_padding = audio_batch["padding_mask"].to(device)
 
     x_0 = source_distribution.sample_like(x_1)
@@ -138,23 +143,47 @@ def step(
         else:
             time=torch.zeros_like(path_sample.t)
 
-        logits, logits_speech = state.model(
-            x_t_text=path_sample.x_t,
-            x_t_speech=path_sample_speech.x_t,
-            time=time,
-            codebook_prob=codebook_prob,
-            padding_mask_text=x_1_padding,
-            padding_mask_speech=x_1_speech_padding,
-        )
+        if supervised:
+            target_size = max(x_1_speech.shape[1], x_1.shape[1])
+            pad_x = target_size - x_1_speech.shape[1]
+            pad_text = target_size - x_1.shape[1]
+
+            # F.pad expects (last_dim_front, last_dim_back, second_last_front, second_last_back...)
+            x_1_speech = F.pad(x_1_speech, (0, 0, 0, pad_x)) 
+            x_1 = F.pad(x_1, (0, 0, 0, pad_text))
+
+            x_1_padding = F.pad(x_1_padding, (0, pad_text), value=True)
+            x_1_speech_padding = F.pad(x_1_speech_padding, (0, pad_x), value=True)
+
+            logits = state.model(
+                    x_t_speech=path_sample_speech.x_t,
+                    time=time,
+                    codebook_prob=codebook_prob,
+                    padding_mask_speech=x_1_speech_padding,
+                )
+
+        else:
+            logits, logits_speech = state.model(
+                    x_t_text=path_sample.x_t,
+                    x_t_speech=path_sample_speech,
+                    time=time,
+                    codebook_prob=codebook_prob,
+                    padding_mask_text=x_1_padding,
+                    padding_mask_speech=x_1_speech_padding,
+                )
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
             assert logits.dtype == logits_speech.dtype == torch.float
             assert x_1.dtype == x_1_speech.dtype == torch.long
 
-            loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_padding.flatten(0,1)
-            loss_full_speech = loss_fn(
-                logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1)
-            ) * ~x_1_speech_padding.flatten(0,1)
+
+            if not supervised:
+                loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_speech_padding.flatten(0,1)
+            else:
+                loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_padding.flatten(0,1)
+                loss_full_speech = loss_fn(
+                    logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1)
+                ) * ~x_1_speech_padding.flatten(0,1)
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             loss_full = loss_fn(

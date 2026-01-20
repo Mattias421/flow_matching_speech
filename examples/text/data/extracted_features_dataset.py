@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .data import collate_fn_unpaired
+from data.utils import collate_fn_unpaired
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ class ExtractedFeaturesDataset(Dataset):
         self.offsets = []
         self.labels = []
         self.aux_tgt = None
+        self.tokenizer = tokenizer
 
         path = os.path.join(path, split)
         data_path = path
@@ -147,7 +148,7 @@ class ExtractedFeaturesDataset(Dataset):
         if len(self.labels) > 0:
             res["target"] = [s["target"] for s in samples]
             collate_toks = collate_fn_unpaired(samples, self.max_length)
-            res["input_ids"] = collate_toks["input_ids"]
+            res["input_ids_text"] = collate_toks["input_ids"]
             res["padding_mask_text"] = collate_toks["padding_mask"]
 
         if self.aux_tgt:

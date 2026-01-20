@@ -14,6 +14,28 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, Sampler
 
+def collate_fn_unpaired(batch, max_length, mode="text"):
+    input_ids = [item["input_ids"] for item in batch]
+
+    sizes = [len(inputs) for inputs in input_ids]
+    length = max(sizes)
+    length = min(length, max_length)
+
+    fill_val = 2
+
+    collated_inp_ids = torch.full((len(batch), length), fill_val, dtype=torch.long)
+    padding_mask = torch.BoolTensor(len(input_ids), length).fill_(False)
+
+    for i, (size, input_id) in enumerate(zip(sizes, input_ids)):
+        size = min(length, size)
+        collated_inp_ids[i, :size] = input_id[:size]
+        padding_mask[i, size:] = True
+
+    assert collated_inp_ids.shape[0] == len(batch)
+    collated = {"input_ids": collated_inp_ids, "padding_mask": padding_mask}
+
+    return collated
+
 
 def cycle_loader(dataloader: DataLoader, sampler: Sampler = None) -> Tensor:
     while 1:
