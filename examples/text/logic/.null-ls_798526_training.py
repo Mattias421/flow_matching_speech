@@ -14,7 +14,6 @@ from flow_matching.path import ProbPath
 from omegaconf.dictconfig import DictConfig
 from torch import nn, Tensor
 from torch.cuda.amp import GradScaler
-import torch.nn.functional as F
 
 from utils.logging import TrainLogger
 
@@ -98,7 +97,6 @@ def step(
     uncond_warmup: int = 10000,
     codebook_prob: float = 0.0,
     loss_speech_weight: float = 1.0,
-    time_conditioning: bool = True,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -107,33 +105,11 @@ def step(
     else:
         state.eval()
 
+    x_1 = text_batch["input_ids"].to(device)
     x_1_speech = audio_batch["input_ids"].to(device)  # speech tokens
+
+    x_1_padding = text_batch["padding_mask"].to(device)
     x_1_speech_padding = audio_batch["padding_mask"].to(device)
-
-    if supervised:
-        x_1 = audio_batch["input_ids_text"].to(device)
-        x_1_padding = audio_batch["padding_mask_text"].to(device)
-
-        target_size = max(x_1_speech.shape[1], x_1.shape[1])
-
-        x_1_tmp = torch.zeros(x_1.shape[0], target_size, device=device, dtype=torch.long)
-        x_1_tmp[:,:x_1.shape[1]] = x_1
-        x_1 = x_1_tmp
-
-        x_1_tmp = torch.zeros(x_1.shape[0], target_size, device=device, dtype=torch.long)
-        x_1_tmp[:,:x_1_speech.shape[1]] = x_1_speech
-        x_1_speech = x_1_tmp
-
-        pad_tmp = torch.BoolTensor(x_1_tmp.shape).fill_(True)
-        pad_tmp[:, :x_1_padding.shape[1]] = x_1_padding
-        x_1_padding = pad_tmp.to(device)
-
-        pad_tmp = torch.BoolTensor(x_1_tmp.shape).fill_(True)
-        pad_tmp[:, :x_1_speech_padding.shape[1]] = x_1_speech_padding
-        x_1_speech_padding = pad_tmp.to(device)
-    else:
-        x_1 = text_batch["input_ids"].to(device)
-        x_1_padding = text_batch["padding_mask"].to(device)
 
     x_0 = source_distribution.sample_like(x_1)
     x_0_speech = source_distribution_speech.sample_like(x_1_speech)
@@ -156,54 +132,23 @@ def step(
     ctx = nullcontext() if training else torch.no_grad()
 
     with ctx:
-        if time_conditioning:
+        logits, logits_speech = state.model(
+            x_t_text=path_sample.x_t,
+            x_t_speech=path_sample_speech.x_t,
             time=path_sample.t,
-        else:
-            time=torch.ones_like(path_sample.t)
-
-        if supervised:
-
-            logits = state.model(
-                    x_t_speech=path_sample_speech.x_t,
-                    time=time,
-                    codebook_prob=codebook_prob,
-                    padding_mask_speech=x_1_speech_padding,
-                )
-
-        else:
-            logits, logits_speech = state.model(
-                    x_t_text=path_sample.x_t,
-                    x_t_speech=path_sample_speech,
-                    time=time,
-                    codebook_prob=codebook_prob,
-                    padding_mask_text=x_1_padding,
-                    padding_mask_speech=x_1_speech_padding,
-                )
+            codebook_prob=codebook_prob,
+            padding_mask_text=x_1_padding,
+            padding_mask_speech=x_1_speech_padding,
+        )
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
-            assert logits.dtype == torch.float
+            assert logits.dtype == logits_speech.dtype == torch.float
             assert x_1.dtype == x_1_speech.dtype == torch.long
 
-
-            if supervised:
-                loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_speech_padding.flatten(0,1)
-                loss_full = loss_full.reshape(x_1.shape)
-
-                loss = loss_full.sum() / (~x_1_padding).sum()
-                loss_text = loss
-                loss_speech = loss
-            else:
-                loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_padding.flatten(0,1)
-                loss_full_speech = loss_fn(
-                    logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1)
-                ) * ~x_1_speech_padding.flatten(0,1)
-
-                loss_full = loss_full.reshape(x_1.shape)
-                loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
-
-                loss_text = loss_full.sum() / (~x_1_padding).sum()
-                loss_speech = loss_full_speech.sum() / (~x_1_speech_padding).sum()
-                loss = loss_text + loss_speech * loss_speech_weight
+            loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_padding.flatten(0,1)
+            loss_full_speech = loss_fn(
+                logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1)
+            ) * ~x_1_speech_padding.flatten(0,1)
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             loss_full = loss_fn(
@@ -219,7 +164,12 @@ def step(
         else:
             raise ValueError("Invalid loss function")
 
+        loss_full = loss_full.reshape(x_1.shape)
+        loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
 
+    loss_text = loss_full.sum() / ~x_1_padding.sum()
+    loss_speech = loss_full_speech.sum() / ~x_1_speech_padding.sum()
+    loss = loss_text + loss_speech * loss_speech_weight
 
 
     # Optimization step (only if training=true)

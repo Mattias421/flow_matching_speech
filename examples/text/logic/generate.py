@@ -91,7 +91,7 @@ def generate_transcription(
 
             trn_hyp_ids = probs.argmax(dim=-1).cpu().tolist()
         else:
-            t = torch.zeros(speech.shape[0], device=speech.device)
+            t = torch.ones(speech.shape[0], device=speech.device)
             probs += torch.softmax(
                 model(
                     x_t_speech=speech,
