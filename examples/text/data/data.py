@@ -20,91 +20,10 @@ from transformers import WhisperProcessor
 from data.tokenizer import wt_detokenizer
 from data.utils import cycle_loader, StatefulDistributedSampler, collate_fn_unpaired
 from data.extracted_features_dataset import ExtractedFeaturesDataset
+from data.random_input_dataset import RandomInputDataset
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def _get_hf_dataset(
-    name: str,
-    mode: str,
-    split: str,
-    codec_name: str,
-    cache_dir: str = None,
-    block_size: int = 1024,
-    num_proc: int = 8,
-    text_tokenizer: str = "speecht5",
-) -> DatasetDict:
-    detokenizer = None
-
-    logger.info(f"preparing {name}-{mode}")
-
-    if name == "wikitext103":
-        data = load_dataset(
-            "wikitext", name="wikitext-103-raw-v1", cache_dir=cache_dir
-        )[mode]
-        detokenizer = wt_detokenizer
-    elif name == "fineweb-edu":
-        data = load_dataset(
-            "HuggingFaceFW/fineweb-edu", name="CC-MAIN-2024-10", cache_dir=cache_dir
-        )[mode]
-    elif name == "librispeech_lm":
-        builder = load_dataset_builder(
-            "openslr/librispeech_lm", cache_dir=cache_dir, trust_remote_code=True
-        )
-        builder.download_and_prepare()
-        data = builder.as_dataset(split="train")
-        data = data.train_test_split(train_size=0.01, seed=42)[
-            "train"
-        ]  # trim because 80m rows is far too many
-        data = data.filter(lambda example: len(example["text"]) <= 510)
-    elif name == "librispeech_dummy":
-        data = load_dataset(
-            "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation"
-        )
-    else:
-        data = load_dataset(name, cache_dir=cache_dir)[mode]
-
-    def _apply_detokenizer(detokenizer):
-        def detok(text):
-            for i, t in enumerate(text, 0):
-                text[i] = detokenizer(t)
-            return text
-
-        return detok
-
-    logger.info("loading tokenizer")
-    processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-
-    if text_tokenizer == "speecht5":
-        tokenizer = SpeechT5Tokenizer.from_pretrained("microsoft/speecht5_tts")
-    else:
-        tokenizer = processor.tokenizer
-
-    def preprocess_and_tokenize_text(example: Dict):
-        text = example["text"]
-
-        if detokenizer is not None:
-            text = _apply_detokenizer(detokenizer)(text)
-
-        text = [processor.tokenizer.basic_normalize(t) for t in text]
-        text_tokens = tokenizer(text, return_attention_mask=False)
-
-        return text_tokens
-
-    logger.info("Tokenizing data")
-
-    tokenized_dataset = data.map(
-        preprocess_and_tokenize_text,
-        batched=True,
-        batch_size=1000,
-        num_proc=8,
-        load_from_cache_file=True,
-    )
-
-    tokenized_dataset = tokenized_dataset.with_format("torch")
-
-    return tokenized_dataset
 
 
 def _get_extracted_features_dataset(
@@ -151,76 +70,21 @@ class Dataset:
 
 @dataclass
 class DataState:
-    audio: ExtractedFeaturesDataset = field(metadata={"help": "Audio dataset"})
-    text: Dataset = field(metadata={"help": "text dataset"})
-    test_text: Dataset = field(metadata={"help": "Test dataset"})
-    test_audio: ExtractedFeaturesDataset = field(metadata={"help": "Test dataset"})
-
-
-def _get_dataset(
-    name: str,
-    mode: str,
-    split: str,
-    cache_dir: str,
-    block_size: int,
-    num_proc: int,
-    batch_size: int,
-    ngpus: int,
-    codec_name: str,
-    supervised: bool = False,
-    seed: int = 0,
-) -> Dataset:
-    assert batch_size % ngpus == 0, (
-        f"{mode} batch size must be divisible by number of gpus."
-    )
-
-    dataset = _get_hf_dataset(
-        name=name,
-        mode=mode,
-        split=split,
-        cache_dir=cache_dir,
-        block_size=block_size,
-        num_proc=num_proc,
-        codec_name=codec_name,
-    )
-
-    sampler = (
-        StatefulDistributedSampler(dataset=dataset, seed=seed)
-        if not supervised
-        else None
-    )
-
-    return Dataset(dataset=dataset, sampler=sampler)
+    train: RandomInputDataset = field(metadata={"help": "train dataset"})
+    valid: RandomInputDataset = field(metadata={"help": "valid dataset"})
 
 
 def get_data_state(config: OmegaConf) -> DataState:
-    text = _get_dataset(
-        name=config.data.text,
-        mode="text",
-        split="train",
-        cache_dir=config.data.cache_dir,
-        block_size=config.model.length,
-        num_proc=config.data.num_workers,
-        batch_size=config.training.batch_size,
-        ngpus=config.compute.ngpus,
-        codec_name=config.data.codec_name,
-        supervised=config.data.supervised,
-        seed=0,
-    )
 
+    import os 
+    from fairseq.data import (
+    Dictionary,
+    data_utils,
+    StripTokenDataset,
+)
 
-    test_text = _get_dataset(
-        name=config.data.valid,
-        mode="text",
-        split="validation",
-        cache_dir=config.data.cache_dir,
-        block_size=config.model.length,
-        num_proc=config.data.num_workers,
-        batch_size=config.eval.batch_size,
-        ngpus=config.compute.ngpus,
-        codec_name=config.data.codec_name,
-        supervised=True,
-    )
+    dict_path = os.path.join(config.data.text_data, "dict.txt")
+    target_dictionary = Dictionary.load(dict_path)
 
     audio = _get_extracted_features_dataset(
         path=config.data.features_path,
@@ -229,6 +93,19 @@ def get_data_state(config: OmegaConf) -> DataState:
         max_length=config.model.length,
         supervised=config.data.supervised,
         seed=0,
+    )
+
+    text_dataset = data_utils.load_indexed_dataset(
+        os.path.join(config.data.text_data, "train"), target_dictionary
+    )
+
+    text_dataset = StripTokenDataset(text_dataset, target_dictionary.eos())
+    train = RandomInputDataset(
+        audio,
+        text_dataset,
+        ["random_label"],
+        add_to_input=True,
+        pad_idx=target_dictionary.pad(),
     )
 
     test_audio = _get_extracted_features_dataset(
@@ -240,7 +117,16 @@ def get_data_state(config: OmegaConf) -> DataState:
         seed=0,
     )
 
-    return DataState(audio=audio, text=text, test_text=test_text, test_audio=test_audio)
+    # TODO implement valid text dataset
+    valid = RandomInputDataset(
+        test_audio,
+        text_dataset,
+        ["random_label"],
+        add_to_input=True,
+        pad_idx=target_dictionary.pad(),
+    )
+
+    return DataState(train=train, valid=valid)
 
 
 
