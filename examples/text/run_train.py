@@ -30,18 +30,13 @@ def find_free_port():
         return s.getsockname()[1]  # Return the port number assigned by the OS
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="config")
+@hydra.main(config_path="configs", config_name="config")
 def main(cfg: DictConfig):
     if "load_dir" in cfg:
         work_dir = cfg.load_dir
         cfg = checkpointing.load_cfg_from_path(cfg.load_dir)
     else:
-        hydra_cfg = HydraConfig.get()
-        work_dir = (
-            hydra_cfg.run.dir
-            if hydra_cfg.mode == RunMode.RUN
-            else os.path.join(hydra_cfg.sweep.dir, hydra_cfg.sweep.subdir)
-        )
+        work_dir = os.getcwd()
         os.makedirs(work_dir, exist_ok=True)
 
     with open_dict(cfg):

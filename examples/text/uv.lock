@@ -549,6 +549,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cloudpickle"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228 },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1105,6 +1114,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f9/77/262e49f48fab1db502d966a3065830dd026e1f050c382f77514bc1a9d048/hydra-core-1.0.7.tar.gz", hash = "sha256:58cc3f7531995b6d8de162ca21f936e17bdaebd4d1e8614d63c32e17c2e41e45", size = 109178 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/2a/9c698daa12ed6e09e7629e6908528f043fa9de8a441c56cc13608d765fb2/hydra_core-1.0.7-py3-none-any.whl", hash = "sha256:e800c6deb8309395508094851fa93bc13408f2285261eb97e626d37193b58a9f", size = 123750 },
+]
+
+[[package]]
+name = "hydra-submitit-launcher"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "hydra-core" },
+    { name = "submitit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cc/d5/88e8f86b4fcb1fb4cf8a34e7a79a8f48e51e0baf890d299dc7e54a6b4d6a/hydra-submitit-launcher-1.1.1.tar.gz", hash = "sha256:f09fcb843e2bd46ea59a64d96124dc368d424570166c39624df6daba8d1fda22", size = 4826 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/e5/a5224cc5427f45168bc92fc61c28def30ea53f2c9f9ffe37e0a186717c86/hydra_submitit_launcher-1.1.1-py3-none-any.whl", hash = "sha256:fb2c00631b91d96c8166b24d9c6a87bb7cf41a43f9a393910d3732ed3fca3f2e", size = 5090 },
 ]
 
 [[package]]
@@ -3369,6 +3391,19 @@ wheels = [
 ]
 
 [[package]]
+name = "submitit"
+version = "1.5.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cloudpickle" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/47/86/497018fb3b74e71bef45df82762b176e6b3d159f29941c20d2f141ec4096/submitit-1.5.4.tar.gz", hash = "sha256:7100848bd1cdda79c7196e54ee830793ae75fd7adde0c5bef738d72360a07508", size = 81538 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/bb/711e1c2ebd18a21202c972dd5d5c8e09a921f2d3560e3a53d6350c808ab7/submitit-1.5.4-py3-none-any.whl", hash = "sha256:c26f3a7c8d4150eaf70b1da71e2023e9e9936c93e8342ed7db910f29158561c5", size = 76043 },
+]
+
+[[package]]
 name = "sympy"
 version = "1.13.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3390,6 +3425,20 @@ wheels = [
 ]
 
 [[package]]
+name = "tensorboardx"
+version = "2.6.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/c5/d4cc6e293fb837aaf9f76dd7745476aeba8ef7ef5146c3b3f9ee375fe7a5/tensorboardx-2.6.4.tar.gz", hash = "sha256:b163ccb7798b31100b9f5fa4d6bc22dad362d7065c2f24b51e50731adde86828", size = 4769801 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/1d/b5d63f1a6b824282b57f7b581810d20b7a28ca951f2d5b59f1eb0782c12b/tensorboardx-2.6.4-py3-none-any.whl", hash = "sha256:5970cf3a1f0a6a6e8b180ccf46f3fe832b8a25a70b86e5a237048a7c0beb18e2", size = 87201 },
+]
+
+[[package]]
 name = "text"
 version = "0.1.0"
 source = { virtual = "." }
@@ -3397,18 +3446,21 @@ dependencies = [
     { name = "datasets" },
     { name = "einops" },
     { name = "fairseq" },
+    { name = "hydra-submitit-launcher" },
     { name = "jiwer" },
     { name = "joblib" },
     { name = "kenlm" },
     { name = "librosa" },
     { name = "npy-append-array" },
     { name = "numpy" },
+    { name = "omegaconf" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "sentencepiece" },
     { name = "setuptools" },
     { name = "soundfile" },
     { name = "speechtokenizer" },
+    { name = "tensorboardx" },
     { name = "torch" },
     { name = "transformers" },
     { name = "wandb" },
@@ -3424,18 +3476,21 @@ requires-dist = [
     { name = "datasets", specifier = "==3.6.0" },
     { name = "einops", specifier = ">=0.8.1" },
     { name = "fairseq", specifier = "==0.12.2" },
+    { name = "hydra-submitit-launcher", specifier = ">=1.1.1" },
     { name = "jiwer", specifier = ">=4.0.0" },
     { name = "joblib", specifier = ">=1.5.2" },
     { name = "kenlm", specifier = ">=0.3.0" },
     { name = "librosa", specifier = ">=0.11.0" },
     { name = "npy-append-array", specifier = ">=0.9.19" },
     { name = "numpy", specifier = "==1.26.4" },
+    { name = "omegaconf", specifier = ">=2.0.6" },
     { name = "pandas", specifier = "==2.0.0" },
     { name = "pyarrow", specifier = "==19.0.0" },
     { name = "sentencepiece", specifier = ">=0.2.1" },
     { name = "setuptools", specifier = ">=80.9.0" },
     { name = "soundfile", specifier = ">=0.13.1" },
     { name = "speechtokenizer", specifier = ">=1.0.1" },
+    { name = "tensorboardx", specifier = ">=2.6.4" },
     { name = "torch", specifier = "==2.5.0" },
     { name = "transformers", specifier = ">=4.57.1" },
     { name = "wandb", specifier = ">=0.22.2" },

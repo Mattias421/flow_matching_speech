@@ -15,6 +15,7 @@ import math
 
 import torch
 import torch.nn.functional as F
+from fairseq.modules import TransposeLast
 from einops import rearrange
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
@@ -22,6 +23,7 @@ from torch import Tensor, nn
 
 from . import rotary
 from .gumbel_vector_quantizer import GumbelVectorQuantizer
+from .segmenter import SEGMENT_FACTORY, SegmentationType
 
 
 def bias_dropout_add_scale(
@@ -215,6 +217,109 @@ class DDitFinalLayer(nn.Module):
 
         return x
 
+# https://github.com/facebookresearch/fairseq/blob/3d262bb25690e4eb2e7d3c1309b1e9c406ca4b99/examples/wav2vec/unsupervised/models/wav2vec_u.py#L288
+class Generator(nn.Module):
+    def __init__(self, input_dim, output_dim, cfg: DictConfig):
+        super().__init__()
+
+        self.cfg = cfg
+        self.output_dim = output_dim
+        self.stride = cfg.generator_stride
+        self.dropout = nn.Dropout(cfg.dropout)
+        self.batch_norm = cfg.generator_batch_norm != 0
+        self.residual = cfg.generator_residual
+
+        padding = (
+            cfg.generator_kernel // 2 if cfg.generator_pad < 0 else cfg.generator_pad
+        )
+        self.proj = nn.Sequential(
+            TransposeLast(),
+            nn.Conv1d(
+                input_dim,
+                output_dim,
+                kernel_size=cfg.generator_kernel,
+                stride=cfg.generator_stride,
+                dilation=cfg.generator_dilation,
+                padding=padding,
+                bias=cfg.generator_bias,
+            ),
+            TransposeLast(),
+        )
+
+
+        if self.batch_norm:
+            self.bn = nn.BatchNorm1d(input_dim)
+            self.bn.weight.data.fill_(cfg.generator_batch_norm)
+        if self.residual:
+            self.in_proj = nn.Linear(input_dim, input_dim)
+
+    def forward(self, dense_x, tokens, dense_padding_mask):
+        result = {}
+
+        if self.batch_norm:
+            dense_x = self.bn_padded_data(dense_x, dense_padding_mask)
+        if self.residual:
+            inter_x = self.in_proj(self.dropout(dense_x))
+            dense_x = dense_x + inter_x
+            result["inter_x"] = inter_x
+
+        dense_x = self.dropout(dense_x)
+
+        dense_x = self.proj(dense_x)
+        if self.stride > 1:
+            dense_padding_mask = dense_padding_mask[:, :: self.stride]
+
+        if dense_padding_mask.size(1) != dense_x.size(1):
+            new_padding = dense_padding_mask.new_zeros(dense_x.shape[:-1])
+            diff = new_padding.size(1) - dense_padding_mask.size(1)
+
+            if diff > 0:
+                new_padding[:, diff:] = dense_padding_mask
+            else:
+                assert diff < 0
+                new_padding = dense_padding_mask[:, :diff]
+
+            dense_padding_mask = new_padding
+
+        token_x = None
+        if tokens is not None:
+            token_x = dense_x.new_zeros(tokens.numel(), self.output_dim)
+            token_x.scatter_(1, tokens.view(-1, 1).long(), 1)
+            token_x = token_x.view(tokens.shape + (self.output_dim,))
+
+        result["dense_x"] = dense_x
+        result["token_x"] = token_x
+        result["dense_padding_mask"] = dense_padding_mask
+
+        return result
+
+    def bn_padded_data(self, feature, padding_mask):
+        normed_feature = feature.clone()
+        normed_feature[~padding_mask] = self.bn(
+            feature[~padding_mask].unsqueeze(-1)
+        ).squeeze(-1)
+        return normed_feature
+
+def upsample_by_duration(collapsed_x, durations):
+    """
+    collapsed_x: [Batch, Seq_Len, Dim] (The phone-level features)
+    durations: List of 1D Tensors (The counts 'c' from segmenter)
+    """
+    batch_upsampled = []
+    
+    for i, x in enumerate(collapsed_x):
+        # Get valid durations (remove padding if needed)
+        # Assuming durations[i] corresponds to the valid part of x[i]
+        d = durations[i].to(x.device).long()
+        
+        # This repeats each step t by d[t] times
+        # Shape: [Total_Frames, Dim]
+        upsampled = torch.repeat_interleave(x[:len(d)], d, dim=0)
+        batch_upsampled.append(upsampled)
+        
+    # Pad batch to create a single tensor
+    return torch.nn.utils.rnn.pad_sequence(batch_upsampled, batch_first=True)
+
 
 class Transformer(nn.Module):
     def __init__(self, vocab_size: int, masked: bool, config: DictConfig):
@@ -230,9 +335,8 @@ class Transformer(nn.Module):
         self.masked = masked
 
         self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
-        self.vocab_embed_speech = nn.Embedding(
-            config.vocab_size_speech + add_token, config.hidden_size
-        )
+        self.generator = Generator(config.feature_size, config.hidden_size, config)
+        self.segmenter = SEGMENT_FACTORY[config.segmentation.type](config.segmentation)
 
         self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
 
@@ -268,6 +372,29 @@ class Transformer(nn.Module):
 
         self.output_layer_speech = DDitFinalLayer(
             hidden_size=config.hidden_size,
+            out_channels=config.hidden_size,
+            cond_dim=config.cond_dim,
+        )
+
+        padding = (
+            config.generator_kernel // 2 if config.generator_pad < 0 else config.generator_pad
+        )
+        self.rev_proj = nn.Sequential(
+            TransposeLast(),
+            nn.ConvTranspose1d(
+                config.hidden_size,
+                config.hidden_size,
+                kernel_size=config.generator_kernel,
+                stride=config.generator_stride,
+                dilation=config.generator_dilation,
+                padding=padding,
+                bias=config.generator_bias,
+            ),
+            TransposeLast(),
+        )
+
+        self.output_layer_speech_2 = DDitFinalLayer(
+            hidden_size=config.hidden_size,
             out_channels=config.vocab_size_speech + add_token,
             cond_dim=config.cond_dim,
         )
@@ -285,7 +412,14 @@ class Transformer(nn.Module):
     ) -> Tensor:
         batch_size = x_t_speech.shape[0]
 
-        x = self.vocab_embed_speech(x_t_speech.long())
+        gen_result = self.generator(x_t_speech, None, padding_mask_speech)
+        orig_dense_x, _ = gen_result["dense_x"], gen_result["token_x"]
+        orig_dense_padding_mask = gen_result["dense_padding_mask"]
+        x, dense_padding_mask, alignment_durations = self.segmenter.logit_segment(
+            orig_dense_x, orig_dense_padding_mask
+        )
+
+        orig_padding_mask_speech = padding_mask_speech
 
         # Get time embeddings
         c = F.silu(self.time_embedding(time=time))
@@ -309,7 +443,7 @@ class Transformer(nn.Module):
 
             # 4. Handle padding masks similarly
             mask_text_padded = F.pad(padding_mask_text, (0, pad_text), value=True)
-            mask_speech_padded = F.pad(padding_mask_speech, (0, pad_x), value=True)
+            mask_speech_padded = F.pad(dense_padding_mask, (0, pad_x), value=True)
             padding_mask = torch.cat([mask_text_padded, mask_speech_padded], dim=0)
 
             # 5. Double the time embedding
@@ -352,10 +486,16 @@ class Transformer(nn.Module):
                 x_out = self.output_layer(x=x[:batch_size], c=c[:batch_size])
                 z = self.output_layer_speech(x=x[batch_size:], c=c[batch_size:])
 
+                z_proj = upsample_by_duration(z, alignment_durations)
+                z_proj = self.rev_proj(z_proj)
+                z = self.output_layer_speech_2(x=z_proj, c=c[batch_size:])
+                breakpoint()
+
                 x_out = x_out * ~padding_mask[:batch_size, :, None]
                 x_out = x_out[:,:x_t_text.shape[-1]]
-                z = z * ~padding_mask[batch_size:, :, None]
+                z[padding_mask_speech] = -1
                 z = z[:,:x_t_speech.shape[-1]]
+                breakpoint()
 
                 if self.masked:
                     x_out[:,:,-1] = 0.0

@@ -35,14 +35,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
     logger.log_devices(device=device, logger=logger)
 
-    processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-    if cfg.data.text_tokenizer == "speecht5":
-        tokenizer = SpeechT5Tokenizer.from_pretrained("microsoft/speecht5_tts")
-        pad_id = tokenizer.encode("<pad>")[0]
-    else:
-        tokenizer = processor.tokenizer
-        pad_id = tokenizer.encode("<|endoftranscript|>")[0]
-    vocab_size = len(tokenizer)
+    data_state = data.get_data_state(config=cfg)
+
+    vocab_size = len(data_state.train.target_dictionary)
+    pad_id = data_state.train.target_dictionary.pad()
 
     source_distribution = flow.get_source_distribution(
         source_distribution=cfg.flow.source_distribution, vocab_size=vocab_size
@@ -77,13 +73,12 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     scaler = torch.amp.GradScaler("cuda")
     logger.info(f"Scaler: {scaler}")
 
-    data_state = data.get_data_state(config=cfg)
 
     # Train state
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
     state.restore_checkpoint(ckpt_dir=work_dirs.checkpoint, device=device, rank=rank)
 
-    audio_iter, text_iter, eval_iter, eval_iter_text, eval_iter_audio = (
+    train_loader, valid_loader, valid_iter = (
         data.get_data_loaders(config=cfg, data_state=data_state)
     )
 
@@ -109,8 +104,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     cer = None
 
     while state.step <= num_train_steps:
-        text = next(text_iter)
-        audio = next(audio_iter)
+        batch = next(train_loader)
 
         (
             loss,
@@ -121,8 +115,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             path=path,
             state=state,
             scaler=scaler,
-            text_batch=text,
-            audio_batch=audio,
+            batch=batch,
             optim_params=cfg.optim,
             device=device,
             source_distribution=source_distribution,

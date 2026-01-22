@@ -84,8 +84,7 @@ def step(
     loss_fn: nn.Module,
     path: ProbPath,
     scaler: GradScaler,
-    text_batch,
-    audio_batch,
+    batch,
     device: torch.device,
     source_distribution: SourceDistribution,
     source_distribution_speech: SourceDistribution,
@@ -107,53 +106,25 @@ def step(
     else:
         state.eval()
 
-    x_1_speech = audio_batch["input_ids"].to(device)  # speech tokens
-    x_1_speech_padding = audio_batch["padding_mask"].to(device)
+    x_1_speech = batch["net_input"]["features"].to(device)  # speech tokens
+    x_1_speech_padding = batch["net_input"]["padding_mask"].to(device)
 
-    if supervised:
-        x_1 = audio_batch["input_ids_text"].to(device)
-        x_1_padding = audio_batch["padding_mask_text"].to(device)
-
-        target_size = max(x_1_speech.shape[1], x_1.shape[1])
-
-        x_1_tmp = torch.zeros(x_1.shape[0], target_size, device=device, dtype=torch.long)
-        x_1_tmp[:,:x_1.shape[1]] = x_1
-        x_1 = x_1_tmp
-
-        x_1_tmp = torch.zeros(x_1.shape[0], target_size, device=device, dtype=torch.long)
-        x_1_tmp[:,:x_1_speech.shape[1]] = x_1_speech
-        x_1_speech = x_1_tmp
-
-        pad_tmp = torch.BoolTensor(x_1_tmp.shape).fill_(True)
-        pad_tmp[:, :x_1_padding.shape[1]] = x_1_padding
-        x_1_padding = pad_tmp.to(device)
-
-        pad_tmp = torch.BoolTensor(x_1_tmp.shape).fill_(True)
-        pad_tmp[:, :x_1_speech_padding.shape[1]] = x_1_speech_padding
-        x_1_speech_padding = pad_tmp.to(device)
-    else:
-        x_1 = text_batch["input_ids"].to(device)
-        x_1_padding = text_batch["padding_mask"].to(device)
-
-    x_0 = source_distribution.sample_like(x_1)
-    x_0_speech = source_distribution_speech.sample_like(x_1_speech)
-
-    t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
-
-    assert x_1.shape[0] == x_1_speech.shape[0], f"{x_1.shape[0]} should equal {x_1_speech.shape[0]}"
-
-    path_sample = path.sample(t=t, x_0=x_0, x_1=x_1)
-    path_sample_speech = path.sample(t=t, x_0=x_0_speech, x_1=x_1_speech)
-
-    path_sample.x_t *= ~x_1_padding
-    path_sample_speech.x_t *= ~x_1_speech_padding
-
-
-    if not supervised:
-        assert audio_batch["id"] != text_batch["id"]
+    x_1 = batch['net_input']["random_label"].to(device)
+    x_1_padding = (x_1 == pad_id).to(device)
 
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()
+
+    t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
+
+    logits, logits_speech = state.model(
+            x_t_text=x_1,
+            x_t_speech=x_1_speech,
+            time=t,
+            codebook_prob=codebook_prob,
+            padding_mask_text=x_1_padding,
+            padding_mask_speech=x_1_speech_padding,
+        )
 
     with ctx:
         if time_conditioning:
