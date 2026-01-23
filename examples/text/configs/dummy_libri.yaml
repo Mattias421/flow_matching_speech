@@ -28,15 +28,15 @@ data:
 training:
   batch_size: 32
   snapshot: 500
-  eval_freq: 500
+  eval_freq: 5000
   perplexity_freq: 50000000
-  cer_freq: 5000
+  cer_freq: 500
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
   uncond_warmup: 500
   pad_weight: 1.0
-  codebook_prob: 0.3
+  codebook_prob: 1.0
   time_conditioning: true
 
 eval:
@@ -52,11 +52,11 @@ eval:
 optim:
   weight_decay: 0.03
   optimizer: AdamW
-  lr: 1e-3
+  lr: 1e-4
   beta1: 0.9
   beta2: 0.95
   eps: 1e-8
-  warmup: 2000
+  warmup: 500
   grad_clip: 1.
   eta_min_ratio: 0.1
   fused: false
@@ -82,7 +82,7 @@ model:
   dropout: 0.0
   compile: false
   vocab_size_speech: 64
-  n_quantizers: 100
+  n_quantizers: 64
   quantizer_groups: 3
   generator_stride: 3
   generator_kernel: 9

@@ -31,8 +31,6 @@ def generate_transcription(
     step: int,
     vocab_size: int,
     audioloader,
-    tokenizer: PreTrainedTokenizer,
-    normalize,
     rank: int,
     device: torch.device,
     path: ProbPath,
@@ -41,6 +39,7 @@ def generate_transcription(
     sequence_length: int,
     sampling_steps: int,
     pad_id: int,
+    target_dictionary,
     inference_block: int,
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
@@ -60,50 +59,33 @@ def generate_transcription(
         #assert text_batch["id"] == audio_batch["id"]
 
 
-        speech = audio_batch["input_ids"].to(device)
-        padding_mask_speech = audio_batch["padding_mask"].to(device)
+        speech = audio_batch["net_input"]["aux_target"][:,::2].to(device)
+        speech[speech == -1] = 0
+
+        padding_mask_speech = audio_batch["net_input"]["padding_mask"].to(device)
+        trn_hyp_ids = audio_batch["id"]
 
         t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon)
-        probs = torch.softmax(
-            model(
+        probs = model(
                 x_t_speech=speech,
                 padding_mask_speech=padding_mask_speech,
                 time=t,
                 inference_block=inference_block,
-            ).float(),
-            -1,
-        )
-
-        # direct data prediction
-        if time_conditioning:
-            # TODO this isn't quite implemented correctly yet
-            for i in range(64):
-                t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon) * (i / 64)
-                probs += torch.softmax(
-                    model(
-                        x_t_speech=speech,
-                        padding_mask_speech=padding_mask_speech,
-                        time=t,
-                        inference_block=inference_block,
-                    ).float(),
-                    -1,
-                )
-
-            trn_hyp_ids = probs.argmax(dim=-1).cpu().tolist()
-        else:
-            t = torch.ones(speech.shape[0], device=speech.device)
-            probs += torch.softmax(
-                model(
-                    x_t_speech=speech,
-                    padding_mask_speech=padding_mask_speech,
-                    time=t,
-                    inference_block=inference_block,
-                ).float(),
-                -1,
             )
 
-        trn_hyp_ids = probs.argmax(dim=-1).cpu().tolist()
+        greedy = probs.argmax(-1)
+        greedy[padding_mask_speech] = pad_id
 
+        for g in greedy:
+            g = g[g >= target_dictionary.nspecial]
+            pred_units_arr = g
+            # ctc eval
+            pred_units_arr = pred_units_arr.unique_consecutive()
+            pred_units_arr = pred_units_arr[pred_units_arr != 0]
+            pred_units_arr = pred_units_arr.tolist()
+            print(target_dictionary.string(pred_units_arr))
+
+        breakpoint()
 
         for ref_text, hyp_text_ids, utt_id in zip(
             audio_batch["target"], trn_hyp_ids, audio_batch["id"]

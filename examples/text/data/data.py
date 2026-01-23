@@ -80,6 +80,8 @@ def get_data_state(config: OmegaConf) -> DataState:
         split="valid",
         max_length=config.model.length,
         aux_target_postfix='km',
+        labels='wrd',
+        label_dict=target_dictionary,
     )
 
     # TODO implement valid text dataset of some sort
@@ -120,7 +122,7 @@ def get_data_loaders(
         DataLoader(
             data_state.valid,
             batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
-            collate_fn=data_state.train.collater,
+            collate_fn=data_state.valid.collater,
             sampler=data_state.valid.sampler,
             num_workers=config.data.num_workers,
             pin_memory=True,

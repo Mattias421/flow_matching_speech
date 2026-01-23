@@ -96,7 +96,7 @@ def get_source_distribution(
 
 def get_loss_function(loss_function: str, path: Optional[ProbPath] = None) -> _Loss:
     if loss_function == "cross_entropy":
-        return torch.nn.CrossEntropyLoss(reduction="none")
+        return torch.nn.CrossEntropyLoss(reduction="mean", ignore_index=-1)
     elif loss_function == "generalized_kl":
         assert path is not None
 

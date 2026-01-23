@@ -111,72 +111,49 @@ def step(
 
     x_1 = batch['net_input']["random_label"].to(device)
     x_1_padding = (x_1 == pad_id).to(device)
+    x_1_target = x_1.clone().detach()
+    x_1_target[x_1 == 1] = -1
 
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()
 
-    t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
+    t = torch.ones(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
 
-    logits, logits_speech = state.model(
-            x_t_text=x_1,
-            x_t_speech=x_1_speech,
-            time=t,
-            codebook_prob=codebook_prob,
-            padding_mask_text=x_1_padding,
-            padding_mask_speech=x_1_speech_padding,
-        )
+    if training:
+        # down sample km target by 2
+        km_targets = batch["net_input"]["aux_target"][:,::2].to(device)
+        km_input = km_targets.clone().detach()
+        km_input[km_targets == -1] = 0 # TODO should really implement a pad token for km labels
 
     with ctx:
-        if time_conditioning:
-            time=path_sample.t,
-        else:
-            time=torch.ones_like(path_sample.t)
-
-        if supervised:
-
-            logits = state.model(
-                    x_t_speech=path_sample_speech.x_t,
-                    time=time,
-                    codebook_prob=codebook_prob,
-                    padding_mask_speech=x_1_speech_padding,
-                )
-
-        else:
-            logits, logits_speech = state.model(
-                    x_t_text=path_sample.x_t,
-                    x_t_speech=path_sample_speech,
-                    time=time,
-                    codebook_prob=codebook_prob,
-                    padding_mask_text=x_1_padding,
-                    padding_mask_speech=x_1_speech_padding,
-                )
+        logits, logits_speech = state.model(
+                x_t_text=x_1,
+                x_t_speech=km_input,
+                time=t,
+                codebook_prob=codebook_prob,
+                padding_mask_text=x_1_padding,
+                padding_mask_speech=x_1_speech_padding,
+            )
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
             assert logits.dtype == torch.float
-            assert x_1.dtype == x_1_speech.dtype == torch.long
+            assert x_1.dtype == torch.long
 
+            loss_text =  loss_fn(logits.transpose(1,2), x_1_target)
 
-            if supervised:
-                loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_speech_padding.flatten(0,1)
-                loss_full = loss_full.reshape(x_1.shape)
+            if training:
+                max_t = min(logits_speech.shape[1], km_targets.shape[1])
+                loss_speech =  loss_fn(logits_speech[:,:max_t].transpose(1,2), km_targets[:,:max_t])
+                loss = loss_text + loss_speech
 
-                loss = loss_full.sum() / (~x_1_padding).sum()
-                loss_text = loss
-                loss_speech = loss
+                if state.step > 1000:
+                    breakpoint()
             else:
-                loss_full = loss_fn(logits.flatten(0, 1), x_1.flatten(0, 1)) * ~x_1_padding.flatten(0,1)
-                loss_full_speech = loss_fn(
-                    logits_speech.flatten(0, 1), x_1_speech.flatten(0, 1)
-                ) * ~x_1_speech_padding.flatten(0,1)
-
-                loss_full = loss_full.reshape(x_1.shape)
-                loss_full_speech = loss_full_speech.reshape(x_1_speech.shape)
-
-                loss_text = loss_full.sum() / (~x_1_padding).sum()
-                loss_speech = loss_full_speech.sum() / (~x_1_speech_padding).sum()
-                loss = loss_text + loss_speech * loss_speech_weight
+                loss = loss_text
+                loss_speech = loss_text
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
+            # TODO set up KLD
             loss_full = loss_fn(
                 logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
             ) * ~x_1_padding

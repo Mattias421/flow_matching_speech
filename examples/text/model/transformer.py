@@ -335,8 +335,10 @@ class Transformer(nn.Module):
         self.masked = masked
 
         self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
-        self.generator = Generator(config.feature_size, config.hidden_size, config)
+        self.generator = Generator(config.feature_size, config.vocab_size_speech, config)
         self.segmenter = SEGMENT_FACTORY[config.segmentation.type](config.segmentation)
+
+        self.speech_embed = nn.Embedding(config.vocab_size_speech, config.hidden_size)
 
         self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
 
@@ -366,7 +368,7 @@ class Transformer(nn.Module):
 
         self.output_layer = DDitFinalLayer(
             hidden_size=config.hidden_size,
-            out_channels=vocab_size + add_token,
+            out_channels=vocab_size,
             cond_dim=config.cond_dim,
         )
 
@@ -395,7 +397,7 @@ class Transformer(nn.Module):
 
         self.output_layer_speech_2 = DDitFinalLayer(
             hidden_size=config.hidden_size,
-            out_channels=config.vocab_size_speech + add_token,
+            out_channels=config.vocab_size_speech,
             cond_dim=config.cond_dim,
         )
 
@@ -412,14 +414,17 @@ class Transformer(nn.Module):
     ) -> Tensor:
         batch_size = x_t_speech.shape[0]
 
-        gen_result = self.generator(x_t_speech, None, padding_mask_speech)
-        orig_dense_x, _ = gen_result["dense_x"], gen_result["token_x"]
-        orig_dense_padding_mask = gen_result["dense_padding_mask"]
-        x, dense_padding_mask, alignment_durations = self.segmenter.logit_segment(
-            orig_dense_x, orig_dense_padding_mask
-        )
+        # gen_result = self.generator(x_t_speech, None, padding_mask_speech)
+        # orig_dense_x, _ = gen_result["dense_x"], gen_result["token_x"]
+        # orig_dense_padding_mask = gen_result["dense_padding_mask"]
+        # x, dense_padding_mask, alignment_durations = self.segmenter.logit_segment(
+        #     orig_dense_x, orig_dense_padding_mask
+        # )
+
+        x = self.speech_embed(x_t_speech)
 
         orig_padding_mask_speech = padding_mask_speech
+        dense_padding_mask = padding_mask_speech
 
         # Get time embeddings
         c = F.silu(self.time_embedding(time=time))
@@ -484,29 +489,23 @@ class Transformer(nn.Module):
         if x_t_text is not None:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x[:batch_size], c=c[:batch_size])
-                z = self.output_layer_speech(x=x[batch_size:], c=c[batch_size:])
+                # z = self.output_layer_speech(x=x[batch_size:], c=c[batch_size:])
+                #
+                # z_proj = upsample_by_duration(z, alignment_durations)
+                # z_proj = self.rev_proj(z_proj)
+                z = self.output_layer_speech_2(x=x[batch_size:], c=c[batch_size:])
 
-                z_proj = upsample_by_duration(z, alignment_durations)
-                z_proj = self.rev_proj(z_proj)
-                z = self.output_layer_speech_2(x=z_proj, c=c[batch_size:])
-                breakpoint()
-
-                x_out = x_out * ~padding_mask[:batch_size, :, None]
+                x_out = x_out[:,:padding_mask_text.shape[-1]]
+                x_out[padding_mask_text] = -1 
                 x_out = x_out[:,:x_t_text.shape[-1]]
-                z[padding_mask_speech] = -1
-                z = z[:,:x_t_speech.shape[-1]]
-                breakpoint()
-
-                if self.masked:
-                    x_out[:,:,-1] = 0.0
-                    z[:,:,-1] = 0.0
+                max_t = min(z.shape[1], orig_padding_mask_speech.shape[1])
+                z[:,:max_t][orig_padding_mask_speech[:,:max_t]] = -1
+                z = z[:,:max_t]
 
             return x_out, z
         else:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x, c=c)
-                x_out = x_out * ~padding_mask[:, :, None]
+                x_out[padding_mask_speech] = -1 
 
-                if self.masked:
-                    x_out[:,:,-1] = 0.0
             return x_out

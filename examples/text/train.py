@@ -170,6 +170,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
         if state.step % cfg.training.eval_freq == 0:
             logger.info("Evaluating loss...", step=state.step)
 
+            eval_batch = next(valid_loader)
+
             (
                 eval_loss,
                 _,
@@ -179,8 +181,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 path=path,
                 state=state,
                 scaler=scaler,
-                text_batch=text,
-                audio_batch=audio,
+                batch=eval_batch,
                 optim_params=cfg.optim,
                 device=device,
                 source_distribution=source_distribution,
@@ -213,9 +214,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 step=state.step,
                 sample_dir=work_dirs.samples,
                 vocab_size=vocab_size,
-                audioloader=eval_iter_audio,
-                tokenizer=tokenizer,
-                normalize=processor.tokenizer.basic_normalize,
+                audioloader=valid_iter,
+                target_dictionary=data_state.train.target_dictionary,
                 rank=rank,
                 device=device,
                 path=path,
