@@ -339,6 +339,8 @@ class Transformer(nn.Module):
         self.segmenter = SEGMENT_FACTORY[config.segmentation.type](config.segmentation)
 
         self.speech_embed = nn.Embedding(config.vocab_size_speech, config.hidden_size)
+        # self.speech_proj = nn.Sequential(nn.Linear(1024, 1024), nn.GELU(), nn.Linear(1024, config.hidden_size))
+        self.speech_proj = nn.Linear(1024, config.hidden_size)
 
         self.time_embedding = TimestepEmbedder(hidden_size=config.cond_dim)
 
@@ -421,7 +423,7 @@ class Transformer(nn.Module):
         #     orig_dense_x, orig_dense_padding_mask
         # )
 
-        x = self.speech_embed(x_t_speech)
+        x = self.speech_proj(x_t_speech)
 
         orig_padding_mask_speech = padding_mask_speech
         dense_padding_mask = padding_mask_speech

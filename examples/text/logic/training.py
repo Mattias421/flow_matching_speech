@@ -128,7 +128,7 @@ def step(
     with ctx:
         logits, logits_speech = state.model(
                 x_t_text=x_1,
-                x_t_speech=km_input,
+                x_t_speech=x_1_speech,
                 time=t,
                 codebook_prob=codebook_prob,
                 padding_mask_text=x_1_padding,
@@ -144,10 +144,8 @@ def step(
             if training:
                 max_t = min(logits_speech.shape[1], km_targets.shape[1])
                 loss_speech =  loss_fn(logits_speech[:,:max_t].transpose(1,2), km_targets[:,:max_t])
-                loss = loss_text + loss_speech
+                loss = loss_text * 0.0  + loss_speech
 
-                if state.step > 1000:
-                    breakpoint()
             else:
                 loss = loss_text
                 loss_speech = loss_text

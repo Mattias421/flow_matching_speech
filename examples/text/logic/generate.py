@@ -59,8 +59,7 @@ def generate_transcription(
         #assert text_batch["id"] == audio_batch["id"]
 
 
-        speech = audio_batch["net_input"]["aux_target"][:,::2].to(device)
-        speech[speech == -1] = 0
+        speech = audio_batch["net_input"]["features"].to(device)
 
         padding_mask_speech = audio_batch["net_input"]["padding_mask"].to(device)
         trn_hyp_ids = audio_batch["id"]
