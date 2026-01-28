@@ -15,8 +15,8 @@ logging:
   group: null
 
 data:
-  text_data: /store/store4/data/variety-text-corpus/ImageCaptions/text/phones/
-  features_path: /store/store4/data/LibriSpeech-Clean-NoSil/features/wav2vec_vox/
+  text_data: /store/store4/data/variety-text-corpus/LibriLM/text/phones/
+  features_path: /store/store4/data/LibriSpeech-10hr-rVAD/features/wav2vec_vox/
   num_workers: 0
   max_decode_ratio: 1
   debug: false
@@ -30,13 +30,13 @@ training:
   snapshot: 500
   eval_freq: 5000
   perplexity_freq: 50000000
-  cer_freq: 10000
+  cer_freq: 500
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
   uncond_warmup: 500
   pad_weight: 1.0
-  codebook_prob: 0.0
+  codebook_prob: 0.5
   time_conditioning: true
 
 eval:
@@ -83,7 +83,7 @@ model:
   compile: false
   vocab_size_speech: 64
   n_quantizers: 64
-  quantizer_groups: 3
+  quantizer_groups: 1
   generator_stride: 3
   generator_kernel: 9
   generator_bias: false

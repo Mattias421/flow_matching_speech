@@ -9,6 +9,7 @@ from typing import Optional
 
 import jiwer
 import torch
+import kenlm
 from flow_matching.path import ProbPath
 from flow_matching.solver import MixtureDiscreteEulerSolver
 from flow_matching.utils import ModelWrapper
@@ -41,6 +42,7 @@ def generate_transcription(
     pad_id: int,
     target_dictionary,
     inference_block: int,
+    kenlm_path: str,
     time_epsilon: float = 0.0,
     sample_dir: Optional[Path] = None,
     dtype_categorical: torch.dtype = torch.float64,
@@ -49,6 +51,9 @@ def generate_transcription(
     add_token = 1 if source_distribution.masked else 0
 
     model = model.eval()
+    kenlm_model = kenlm.Model(kenlm_path)
+    total_log_score = 0
+    total_units = 0
 
     hyp_trn = []
     ref_trn = []
@@ -82,49 +87,51 @@ def generate_transcription(
             pred_units_arr = pred_units_arr.unique_consecutive()
             pred_units_arr = pred_units_arr[pred_units_arr != 0]
             pred_units_arr = pred_units_arr.tolist()
-            print(target_dictionary.string(pred_units_arr))
-
-        breakpoint()
-
-        for ref_text, hyp_text_ids, utt_id in zip(
-            audio_batch["target"], trn_hyp_ids, audio_batch["id"]
-        ):
-            text = tokenizer.decode(hyp_text_ids, skip_special_tokens=True)
-            text = normalize(text)
-            raw_hypotheses.append(text)
-            trn_hyp = text + f" ({utt_id})\n"
-            hyp_trn.append(trn_hyp)
-
-            text = normalize(ref_text)
-            raw_references.append(text)
-            trn_ref = text + f" ({utt_id})\n"
-            ref_trn.append(trn_ref)
-
-
-    if sample_dir is not None:
-        hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"
-        ref_file_name = sample_dir / f"iter_{step}" / "ref.trn"
-
-        hyp_file_name.parents[0].mkdir(exist_ok=True, parents=True)
-
-        with (
-            open(hyp_file_name, "w", encoding="utf-8") as hyp_file,
-            open(ref_file_name, "w", encoding="utf-8") as ref_file,
-        ):
-            for hyp, ref in zip(hyp_trn, ref_trn):
-                hyp_file.write(hyp)
-                ref_file.write(ref)
-
-    for hyp, ref in zip(hyp_trn[:10], ref_trn[:10]):
-        print(hyp)
-        print(ref)
-
-    cer = None
-    if raw_references and raw_hypotheses:
-        cer = jiwer.cer(raw_references, raw_hypotheses)
-    else:
-        print("something went wrong with CER calculation")
+            hyp = target_dictionary.string(pred_units_arr)
+            total_log_score += kenlm_model.score(hyp)
+            total_units += len(hyp.split()) + 1
 
     model = model.train()
+    ppl = 10.0 ** (-total_log_score / total_units)
+    return ppl
 
-    return cer
+
+#        for ref_text, hyp_text_ids, utt_id in zip(
+#            audio_batch["target"], trn_hyp_ids, audio_batch["id"]
+#        ):
+#            text = tokenizer.decode(hyp_text_ids, skip_special_tokens=True)
+#            text = normalize(text)
+#            raw_hypotheses.append(text)
+#            trn_hyp = text + f" ({utt_id})\n"
+#            hyp_trn.append(trn_hyp)
+#
+#            text = normalize(ref_text)
+#            raw_references.append(text)
+#            trn_ref = text + f" ({utt_id})\n"
+#            ref_trn.append(trn_ref)
+#
+#
+#    if sample_dir is not None:
+#        hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"
+#        ref_file_name = sample_dir / f"iter_{step}" / "ref.trn"
+#
+#        hyp_file_name.parents[0].mkdir(exist_ok=True, parents=True)
+#
+#        with (
+#            open(hyp_file_name, "w", encoding="utf-8") as hyp_file,
+#            open(ref_file_name, "w", encoding="utf-8") as ref_file,
+#        ):
+#            for hyp, ref in zip(hyp_trn, ref_trn):
+#                hyp_file.write(hyp)
+#                ref_file.write(ref)
+#
+#    for hyp, ref in zip(hyp_trn[:10], ref_trn[:10]):
+#        print(hyp)
+#        print(ref)
+#
+#    cer = None
+#    if raw_references and raw_hypotheses:
+#        cer = jiwer.cer(raw_references, raw_hypotheses)
+#    else:
+#        print("something went wrong with CER calculation")
+

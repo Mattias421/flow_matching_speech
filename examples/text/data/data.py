@@ -11,7 +11,7 @@ from typing import Dict, Iterable, Tuple
 
 from datasets import DatasetDict, load_dataset, load_dataset_builder
 from omegaconf import OmegaConf
-import os 
+import os
 from fairseq.data import (
 Dictionary,
 data_utils,
@@ -28,6 +28,7 @@ from data.utils import cycle_loader, StatefulDistributedSampler, collate_fn_unpa
 from data.extracted_features_dataset import ExtractedFeaturesDataset
 from data.random_input_dataset import RandomInputDataset
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +119,7 @@ def get_data_loaders(
         )
     )
 
-    valid = cycle_loader(
-        DataLoader(
+    valid = DataLoader(
             data_state.valid,
             batch_size=(config.training.batch_size // 2) // config.compute.ngpus,
             collate_fn=data_state.valid.collater,
@@ -130,10 +130,11 @@ def get_data_loaders(
             persistent_workers=config.data.num_workers > 0,
             drop_last=True,
         )
-    )
 
     return (
         iter(train),
-        iter(valid),
+        iter(cycle_loader(valid)),
         valid,
     )
+
+

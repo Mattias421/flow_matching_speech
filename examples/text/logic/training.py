@@ -144,7 +144,7 @@ def step(
             if training:
                 max_t = min(logits_speech.shape[1], km_targets.shape[1])
                 loss_speech =  loss_fn(logits_speech[:,:max_t].transpose(1,2), km_targets[:,:max_t])
-                loss = loss_text * 0.0  + loss_speech
+                loss = loss_text + loss_speech
 
             else:
                 loss = loss_text

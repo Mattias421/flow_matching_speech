@@ -34,7 +34,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
     logger.log_devices(device=device, logger=logger)
-
     data_state = data.get_data_state(config=cfg)
 
     vocab_size = len(data_state.train.target_dictionary)
@@ -56,7 +55,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     num_parameters = sum(p.numel() for p in model.parameters())
     logger.info(f"Number of parameters in the model: {num_parameters}")
-
     model = DDP(model, device_ids=[rank], static_graph=True)
 
     logger.info(model)
@@ -208,6 +206,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             logger.info("Generating text...", step=state.step)
 
             model = state.model.module
+            kenlm_path = cfg.data.text_data + "/lm.phones.filtered.04.bin"
 
             cer = generate.generate_transcription(
                 model=model,
@@ -215,6 +214,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 sample_dir=work_dirs.samples,
                 vocab_size=vocab_size,
                 audioloader=valid_iter,
+                kenlm_path=kenlm_path,
                 target_dictionary=data_state.train.target_dictionary,
                 rank=rank,
                 device=device,
@@ -230,7 +230,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             )
 
             logger.log_metric(
-                value=cer, name="CER", stage="Evaluation", step=state.step
+                value=cer, name="PPL", stage="Evaluation", step=state.step
             )
 
         dist.barrier()

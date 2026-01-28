@@ -306,20 +306,19 @@ def upsample_by_duration(collapsed_x, durations):
     durations: List of 1D Tensors (The counts 'c' from segmenter)
     """
     batch_upsampled = []
-    
+
     for i, x in enumerate(collapsed_x):
         # Get valid durations (remove padding if needed)
         # Assuming durations[i] corresponds to the valid part of x[i]
         d = durations[i].to(x.device).long()
-        
+
         # This repeats each step t by d[t] times
         # Shape: [Total_Frames, Dim]
         upsampled = torch.repeat_interleave(x[:len(d)], d, dim=0)
         batch_upsampled.append(upsampled)
-        
+
     # Pad batch to create a single tensor
     return torch.nn.utils.rnn.pad_sequence(batch_upsampled, batch_first=True)
-
 
 class Transformer(nn.Module):
     def __init__(self, vocab_size: int, masked: bool, config: DictConfig):
@@ -374,30 +373,11 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
+
+        self.cross_modal_s2t = nn.Linear(config.vocab_size_speech, vocab_size)
+        self.cross_modal_t2s = nn.Linear(vocab_size, config.vocab_size_speech)
+
         self.output_layer_speech = DDitFinalLayer(
-            hidden_size=config.hidden_size,
-            out_channels=config.hidden_size,
-            cond_dim=config.cond_dim,
-        )
-
-        padding = (
-            config.generator_kernel // 2 if config.generator_pad < 0 else config.generator_pad
-        )
-        self.rev_proj = nn.Sequential(
-            TransposeLast(),
-            nn.ConvTranspose1d(
-                config.hidden_size,
-                config.hidden_size,
-                kernel_size=config.generator_kernel,
-                stride=config.generator_stride,
-                dilation=config.generator_dilation,
-                padding=padding,
-                bias=config.generator_bias,
-            ),
-            TransposeLast(),
-        )
-
-        self.output_layer_speech_2 = DDitFinalLayer(
             hidden_size=config.hidden_size,
             out_channels=config.vocab_size_speech,
             cond_dim=config.cond_dim,
@@ -434,15 +414,15 @@ class Transformer(nn.Module):
         if x_t_text is not None:
             assert x_t_text.shape[0] == x_t_speech.shape[0], f"{x_t_text.shape[0]},{x_t_speech.shape[0]}"
             x_text = self.vocab_embed(x_t_text.long())
-            
+
             # 1. Calculate how much padding each tensor needs to reach target_size
             target_size = max(x.shape[1], x_text.shape[1])
             pad_x = target_size - x.shape[1]
             pad_text = target_size - x_text.shape[1]
 
-            # 2. Pad the sequence dimension (dim 1) 
+            # 2. Pad the sequence dimension (dim 1)
             # F.pad expects (last_dim_front, last_dim_back, second_last_front, second_last_back...)
-            x_padded = F.pad(x, (0, 0, 0, pad_x)) 
+            x_padded = F.pad(x, (0, 0, 0, pad_x))
             x_text_padded = F.pad(x_text, (0, 0, 0, pad_text))
 
             # 3. Stack them along the batch dimension (dim 0)
@@ -490,16 +470,18 @@ class Transformer(nn.Module):
         # Apply final layer with full precision
         if x_t_text is not None:
             with torch.amp.autocast("cuda", dtype=torch.float32):
-                x_out = self.output_layer(x=x[:batch_size], c=c[:batch_size])
-                # z = self.output_layer_speech(x=x[batch_size:], c=c[batch_size:])
-                #
-                # z_proj = upsample_by_duration(z, alignment_durations)
-                # z_proj = self.rev_proj(z_proj)
-                z = self.output_layer_speech_2(x=x[batch_size:], c=c[batch_size:])
+                text_out = self.output_layer(x=x, c=c)
+                speech_out = self.output_layer_speech(x=x, c=c)
 
-                x_out = x_out[:,:padding_mask_text.shape[-1]]
-                x_out[padding_mask_text] = -1 
-                x_out = x_out[:,:x_t_text.shape[-1]]
+                t2s = self.cross_modal_t2s(text_out[:batch_size])
+                s2t = self.cross_modal_s2t(speech_out[batch_size:])
+
+                text_out, speech_text_out = text_out[:batch_size], text_out[batch_size:]
+                speech_text_out, speech_out = speech_out[:batch_size], speech_out[batch_size:]
+
+                text_out = text_out[:,:padding_mask_text.shape[-1]]
+                text_out[padding_mask_text] = -1
+
                 max_t = min(z.shape[1], orig_padding_mask_speech.shape[1])
                 z[:,:max_t][orig_padding_mask_speech[:,:max_t]] = -1
                 z = z[:,:max_t]
@@ -508,6 +490,6 @@ class Transformer(nn.Module):
         else:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x, c=c)
-                x_out[padding_mask_speech] = -1 
+                x_out[padding_mask_speech] = -1
 
             return x_out
