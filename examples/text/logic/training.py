@@ -109,7 +109,7 @@ def step(
     x_1_speech = batch["net_input"]["features"].to(device)  # speech tokens
     x_1_speech_padding = batch["net_input"]["padding_mask"].to(device)
 
-    x_1 = batch['net_input']["random_label"].to(device)
+    x_1 = batch["net_input"]["random_label"].to(device)
     x_1_padding = (x_1 == pad_id).to(device)
     x_1_target = x_1.clone().detach()
     x_1_target[x_1 == 1] = -1
@@ -121,12 +121,11 @@ def step(
 
     if training:
         # down sample km target by 2
-        km_targets = batch["net_input"]["aux_target"][:,::2].to(device)
-        km_input = km_targets.clone().detach()
-        km_input[km_targets == -1] = 0 # TODO should really implement a pad token for km labels
+        km_targets = batch["net_input"]["aux_target"][:, ::2].to(device)
 
     with ctx:
-        logits, logits_speech = state.model(
+        logits_text, t2s, text_speech_labels, logits_speech, s2t, speech_text_labels = (
+            state.model(
                 x_t_text=x_1,
                 x_t_speech=x_1_speech,
                 time=t,
@@ -134,17 +133,25 @@ def step(
                 padding_mask_text=x_1_padding,
                 padding_mask_speech=x_1_speech_padding,
             )
+        )
 
         if isinstance(loss_fn, nn.CrossEntropyLoss):
-            assert logits.dtype == torch.float
+            assert logits_text.dtype == torch.float
             assert x_1.dtype == torch.long
 
-            loss_text =  loss_fn(logits.transpose(1,2), x_1_target)
+            loss_text = loss_fn(logits_text.transpose(1, 2), x_1_target)
 
             if training:
                 max_t = min(logits_speech.shape[1], km_targets.shape[1])
-                loss_speech =  loss_fn(logits_speech[:,:max_t].transpose(1,2), km_targets[:,:max_t])
-                loss = loss_text + loss_speech
+                loss_speech = loss_fn(
+                    logits_speech[:, :max_t].transpose(1, 2), km_targets[:, :max_t]
+                )
+
+                loss_t2s = loss_fn(t2s.transpose(1, 2), text_speech_labels)
+
+                loss_s2t = loss_fn(s2t.transpose(1, 2), speech_text_labels)
+
+                loss = loss_text + loss_speech + loss_t2s + loss_s2t
 
             else:
                 loss = loss_text
@@ -152,21 +159,22 @@ def step(
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             # TODO set up KLD
-            loss_full = loss_fn(
-                logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t
-            ) * ~x_1_padding
+            loss_full = (
+                loss_fn(logits=logits, x_1=x_1, x_t=path_sample.x_t, t=path_sample.t)
+                * ~x_1_padding
+            )
 
-            loss_full_speech = loss_fn(
-                logits=logits_speech,
-                x_1=x_1_speech,
-                x_t=path_sample_speech.x_t,
-                t=path_sample.t,
-            ) * ~x_1_speech_padding
+            loss_full_speech = (
+                loss_fn(
+                    logits=logits_speech,
+                    x_1=x_1_speech,
+                    x_t=path_sample_speech.x_t,
+                    t=path_sample.t,
+                )
+                * ~x_1_speech_padding
+            )
         else:
             raise ValueError("Invalid loss function")
-
-
-
 
     # Optimization step (only if training=true)
     if training:
@@ -184,4 +192,6 @@ def step(
         loss.detach(),
         loss_text.detach(),
         loss_speech.detach(),
+        loss_t2s.detach(),
+        loss_s2t.detach(),
     )

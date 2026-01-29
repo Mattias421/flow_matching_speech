@@ -217,6 +217,7 @@ class DDitFinalLayer(nn.Module):
 
         return x
 
+
 # https://github.com/facebookresearch/fairseq/blob/3d262bb25690e4eb2e7d3c1309b1e9c406ca4b99/examples/wav2vec/unsupervised/models/wav2vec_u.py#L288
 class Generator(nn.Module):
     def __init__(self, input_dim, output_dim, cfg: DictConfig):
@@ -245,7 +246,6 @@ class Generator(nn.Module):
             ),
             TransposeLast(),
         )
-
 
         if self.batch_norm:
             self.bn = nn.BatchNorm1d(input_dim)
@@ -300,6 +300,7 @@ class Generator(nn.Module):
         ).squeeze(-1)
         return normed_feature
 
+
 def upsample_by_duration(collapsed_x, durations):
     """
     collapsed_x: [Batch, Seq_Len, Dim] (The phone-level features)
@@ -314,11 +315,12 @@ def upsample_by_duration(collapsed_x, durations):
 
         # This repeats each step t by d[t] times
         # Shape: [Total_Frames, Dim]
-        upsampled = torch.repeat_interleave(x[:len(d)], d, dim=0)
+        upsampled = torch.repeat_interleave(x[: len(d)], d, dim=0)
         batch_upsampled.append(upsampled)
 
     # Pad batch to create a single tensor
     return torch.nn.utils.rnn.pad_sequence(batch_upsampled, batch_first=True)
+
 
 class Transformer(nn.Module):
     def __init__(self, vocab_size: int, masked: bool, config: DictConfig):
@@ -334,7 +336,9 @@ class Transformer(nn.Module):
         self.masked = masked
 
         self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
-        self.generator = Generator(config.feature_size, config.vocab_size_speech, config)
+        self.generator = Generator(
+            config.feature_size, config.vocab_size_speech, config
+        )
         self.segmenter = SEGMENT_FACTORY[config.segmentation.type](config.segmentation)
 
         self.speech_embed = nn.Embedding(config.vocab_size_speech, config.hidden_size)
@@ -373,15 +377,14 @@ class Transformer(nn.Module):
             cond_dim=config.cond_dim,
         )
 
-
-        self.cross_modal_s2t = nn.Linear(config.vocab_size_speech, vocab_size)
-        self.cross_modal_t2s = nn.Linear(vocab_size, config.vocab_size_speech)
-
         self.output_layer_speech = DDitFinalLayer(
             hidden_size=config.hidden_size,
             out_channels=config.vocab_size_speech,
             cond_dim=config.cond_dim,
         )
+
+        self.cross_modal_s2t = nn.Linear(config.vocab_size_speech, vocab_size)
+        self.cross_modal_t2s = nn.Linear(vocab_size, config.vocab_size_speech)
 
     # Internal forward method for inference
     def forward(
@@ -412,7 +415,9 @@ class Transformer(nn.Module):
         c = F.silu(self.time_embedding(time=time))
 
         if x_t_text is not None:
-            assert x_t_text.shape[0] == x_t_speech.shape[0], f"{x_t_text.shape[0]},{x_t_speech.shape[0]}"
+            assert x_t_text.shape[0] == x_t_speech.shape[0], (
+                f"{x_t_text.shape[0]},{x_t_speech.shape[0]}"
+            )
             x_text = self.vocab_embed(x_t_text.long())
 
             # 1. Calculate how much padding each tensor needs to reach target_size
@@ -440,7 +445,9 @@ class Transformer(nn.Module):
 
         rotary_cos_sin = self.rotary_emb(x=x)
 
-        inference_block = len(self.blocks) if inference_block is None else inference_block
+        inference_block = (
+            len(self.blocks) if inference_block is None else inference_block
+        )
 
         with torch.amp.autocast("cuda", dtype=torch.bfloat16):
             for i in range(inference_block):
@@ -476,17 +483,33 @@ class Transformer(nn.Module):
                 t2s = self.cross_modal_t2s(text_out[:batch_size])
                 s2t = self.cross_modal_s2t(speech_out[batch_size:])
 
+                # speech_text_out is the text label for the cross_modal_s2t
                 text_out, speech_text_out = text_out[:batch_size], text_out[batch_size:]
-                speech_text_out, speech_out = speech_out[:batch_size], speech_out[batch_size:]
+                text_speech_out, speech_out = (
+                    speech_out[:batch_size],
+                    speech_out[batch_size:],
+                )
 
-                text_out = text_out[:,:padding_mask_text.shape[-1]]
-                text_out[padding_mask_text] = -1
+                text_out, t2s, text_speech_out = (
+                    text_out[:, : padding_mask_text.shape[-1]],
+                    t2s[:, : padding_mask_text.shape[-1]],
+                    text_speech_out[:, : padding_mask_text.shape[-1]],
+                )
+                # text_out[padding_mask_text] = -1
+                text_speech_out = text_speech_out.argmax(dim=-1).detach()
+                text_speech_out[padding_mask_text] = -1
 
-                max_t = min(z.shape[1], orig_padding_mask_speech.shape[1])
-                z[:,:max_t][orig_padding_mask_speech[:,:max_t]] = -1
-                z = z[:,:max_t]
+                max_t = min(speech_out.shape[1], orig_padding_mask_speech.shape[1])
+                speech_out, s2t, speech_text_out = (
+                    speech_out[:, :max_t],
+                    s2t[:, :max_t],
+                    speech_text_out[:, :max_t],
+                )
+                # speech_out[orig_padding_mask_speech[:, :max_t]] = -1
+                speech_text_out = speech_text_out.argmax(dim=-1).detach()
+                speech_text_out[orig_padding_mask_speech[:, :max_t]] = -1
 
-            return x_out, z
+            return text_out, t2s, text_speech_out, speech_out, s2t, speech_text_out
         else:
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 x_out = self.output_layer(x=x, c=c)

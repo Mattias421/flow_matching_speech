@@ -62,6 +62,7 @@ def generate_transcription(
 
     for audio_batch in tqdm(audioloader):
         #assert text_batch["id"] == audio_batch["id"]
+        breakpoint()
 
 
         speech = audio_batch["net_input"]["features"].to(device)

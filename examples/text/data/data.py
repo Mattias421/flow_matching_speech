@@ -81,24 +81,22 @@ def get_data_state(config: OmegaConf) -> DataState:
         split="valid",
         max_length=config.model.length,
         aux_target_postfix='km',
-        labels='wrd',
+        labels='phn',
         label_dict=target_dictionary,
     )
 
-    # TODO implement valid text dataset of some sort
     valid = RandomInputDataset(
         test_audio,
         text_dataset,
-        ["random_label"],
+        ["target", "random_label"],
         add_to_input=True,
         pad_idx=target_dictionary.pad(),
     )
+    breakpoint()
     valid.sampler = StatefulDistributedSampler(dataset=valid, seed=0)
     valid.target_dictionary = target_dictionary
 
     return DataState(train=train, valid=valid)
-
-
 
 
 def get_data_loaders(

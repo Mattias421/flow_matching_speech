@@ -37,6 +37,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     data_state = data.get_data_state(config=cfg)
 
     vocab_size = len(data_state.train.target_dictionary)
+    logger.info(f"using vocab size {vocab_size}")
     pad_id = data_state.train.target_dictionary.pad()
 
     source_distribution = flow.get_source_distribution(
@@ -70,7 +71,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     logger.info(f"Optimizer: {optimizer}")
     scaler = torch.amp.GradScaler("cuda")
     logger.info(f"Scaler: {scaler}")
-
 
     # Train state
     state = TrainState(model=model, optimizer=optimizer, step=1, data_state=data_state)
@@ -108,6 +108,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             loss,
             loss_text,
             loss_speech,
+            loss_t2s,
+            loss_s2t,
         ) = training.step(
             loss_fn=loss_fn,
             path=path,
@@ -134,6 +136,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 loss,
                 loss_text,
                 loss_speech,
+                loss_t2s,
+                loss_s2t,
             ]
         )
 
@@ -149,6 +153,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                     "loss",
                     "loss_text",
                     "loss_speech",
+                    "loss_t2s",
+                    "loss_s2t",
                 ],
                 agg_train_loss_values,
             ):
@@ -172,6 +178,8 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             (
                 eval_loss,
+                _,
+                _,
                 _,
                 _,
             ) = training.step(
