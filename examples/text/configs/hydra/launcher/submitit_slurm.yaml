@@ -1,0 +1,22 @@
+# @package launcher
+_target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+timeout_min: 60
+cpus_per_task: 1
+gpus_per_node: 0
+tasks_per_node: 1
+mem_gb: null
+mem_per_cpu: null
+mem_per_gpu: null
+nodes: 1
+name: ${hydra.job.name}
+partition: null
+comment: null
+constraint: null
+exclude: null
+signal_delay_s: 120
+max_num_timeout: 0
+additional_parameters: {}
+array_parallelism: 256
+srun_args:
+  - --export=ALL

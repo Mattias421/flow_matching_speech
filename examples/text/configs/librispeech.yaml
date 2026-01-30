@@ -1,8 +1,5 @@
 defaults:
   - _self_
-  - override hydra/sweeper/sampler: random
-  - override hydra/launcher: submitit_slurm
-  - override hydra/sweeper: optuna
 
 study_name: default
 
@@ -97,20 +94,4 @@ hydra:
   sweep:
     dir: ${hydra_dir}/${now:%Y.%m.%d}/${now:%H%M%S}
     subdir: ${hydra.job.num}
-  launcher:
-    max_num_timeout: 100000
-    timeout_min: 4320
-    partition: gpu,gpu-h100,gpu-h100-nvl
-    qos: gpu:1
-    gpus_per_node: ${compute.ngpus}
-    cpus_per_task: 1
-    mem_gb: null
-    mem_per_cpu: null
-    mem_per_gpu: null
-    srun_args:
-        - --export=ALL
-    setup:
-        - export WANDB_TAGS="${study_name}"
-        - ml binutils GCCcore GCC libsndfile cuDNN bzip2
-        - source .venv/bin/activate
 
