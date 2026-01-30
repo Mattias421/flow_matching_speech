@@ -98,6 +98,7 @@ def step(
     codebook_prob: float = 0.0,
     loss_speech_weight: float = 1.0,
     time_conditioning: bool = True,
+    t_min: float = 1.0,
 ) -> Tensor:
     assert (training and (optim_params is not None)) or (not training)
 
@@ -117,7 +118,17 @@ def step(
     # Forward and compute loss
     ctx = nullcontext() if training else torch.no_grad()
 
-    t = torch.ones(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon)
+    # sample path (masking)
+    t = torch.rand(x_1.shape[0], device=x_1.device) * (1.0 - time_epsilon) * (1.0 - t_min) + t_min
+
+    rand_mask = torch.rand(x_1.shape, device=x_1.device)
+    x_t = x_1.clone().detach()
+    x_t[rand_mask > t[:, None]] = state.model.module.vocab_size
+
+    rand_mask = torch.rand(x_1_speech.shape[:2], device=x_1.device)
+    x_t_speech = x_1_speech.clone().detach()
+    x_t_speech *= ~(rand_mask > t[:, None])[:,:,None]
+
 
     if training:
         # down sample km target by 2
@@ -126,8 +137,8 @@ def step(
     with ctx:
         logits_text, t2s, text_speech_labels, logits_speech, s2t, speech_text_labels = (
             state.model(
-                x_t_text=x_1,
-                x_t_speech=x_1_speech,
+                x_t_text=x_t,
+                x_t_speech=x_t_speech,
                 time=t,
                 codebook_prob=codebook_prob,
                 padding_mask_text=x_1_padding,
@@ -156,6 +167,8 @@ def step(
             else:
                 loss = loss_text
                 loss_speech = loss_text
+                loss_s2t = loss
+                loss_t2s = loss
 
         elif isinstance(loss_fn, MixturePathGeneralizedKL):
             # TODO set up KLD

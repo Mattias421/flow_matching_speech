@@ -336,10 +336,10 @@ class Transformer(nn.Module):
         self.masked = masked
 
         self.vocab_embed = nn.Embedding(self.vocab_size + add_token, config.hidden_size)
-        self.generator = Generator(
-            config.feature_size, config.vocab_size_speech, config
-        )
-        self.segmenter = SEGMENT_FACTORY[config.segmentation.type](config.segmentation)
+        # self.generator = Generator(
+        #     config.feature_size, config.vocab_size_speech, config
+        # )
+        # self.segmenter = SEGMENT_FACTORY[config.segmentation.type](config.segmentation)
 
         self.speech_embed = nn.Embedding(config.vocab_size_speech, config.hidden_size)
         # self.speech_proj = nn.Sequential(nn.Linear(1024, 1024), nn.GELU(), nn.Linear(1024, config.hidden_size))

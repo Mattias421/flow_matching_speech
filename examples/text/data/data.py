@@ -88,11 +88,10 @@ def get_data_state(config: OmegaConf) -> DataState:
     valid = RandomInputDataset(
         test_audio,
         text_dataset,
-        ["target", "random_label"],
+        ["random_label"],
         add_to_input=True,
         pad_idx=target_dictionary.pad(),
     )
-    breakpoint()
     valid.sampler = StatefulDistributedSampler(dataset=valid, seed=0)
     valid.target_dictionary = target_dictionary
 

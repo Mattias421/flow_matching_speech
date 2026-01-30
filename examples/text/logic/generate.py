@@ -58,17 +58,21 @@ def generate_transcription(
     hyp_trn = []
     ref_trn = []
     raw_hypotheses = []
+
     raw_references = []
+    utt_ids = []
 
     for audio_batch in tqdm(audioloader):
-        #assert text_batch["id"] == audio_batch["id"]
-        breakpoint()
+        # assert text_batch["id"] == audio_batch["id"]
 
+        refs = [' '.join(phn_seq) for phn_seq in audio_batch["target"]]
+        raw_references.extend(refs)
+
+        utt_ids.extend(audio_batch["id"])
 
         speech = audio_batch["net_input"]["features"].to(device)
 
         padding_mask_speech = audio_batch["net_input"]["padding_mask"].to(device)
-        trn_hyp_ids = audio_batch["id"]
 
         t = torch.ones(speech.shape[0], device=speech.device) * (1.0 - time_epsilon)
         probs = model(
@@ -85,54 +89,48 @@ def generate_transcription(
             g = g[g >= target_dictionary.nspecial]
             pred_units_arr = g
             # ctc eval
+            pred_units_arr = pred_units_arr[pred_units_arr != 0]  # remove pad
+            pred_units_arr = pred_units_arr[pred_units_arr != vocab_size - 1]  # remove silence
             pred_units_arr = pred_units_arr.unique_consecutive()
-            pred_units_arr = pred_units_arr[pred_units_arr != 0]
             pred_units_arr = pred_units_arr.tolist()
             hyp = target_dictionary.string(pred_units_arr)
             total_log_score += kenlm_model.score(hyp)
             total_units += len(hyp.split()) + 1
+            raw_hypotheses.append(hyp)
+
+    for ref, hyp, utt_id in zip(
+        raw_references, raw_hypotheses, utt_ids
+    ):
+        trn_hyp = hyp + f" ({utt_id})\n"
+        hyp_trn.append(trn_hyp)
+
+        trn_ref = ref + f" ({utt_id})\n"
+        ref_trn.append(trn_ref)
+
+    if sample_dir is not None:
+        hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"
+        ref_file_name = sample_dir / f"iter_{step}" / "ref.trn"
+
+        hyp_file_name.parents[0].mkdir(exist_ok=True, parents=True)
+
+        with (
+            open(hyp_file_name, "w", encoding="utf-8") as hyp_file,
+            open(ref_file_name, "w", encoding="utf-8") as ref_file,
+        ):
+            for hyp, ref in zip(hyp_trn, ref_trn):
+                hyp_file.write(hyp)
+                ref_file.write(ref)
+
+    for hyp, ref in zip(hyp_trn[:10], ref_trn[:10]):
+        print(hyp)
+        print(ref)
+
+    uer = None
+    if raw_references and raw_hypotheses:
+        uer = jiwer.wer(raw_references, raw_hypotheses)
+    else:
+        print("something went wrong with UER calculation")
 
     model = model.train()
     ppl = 10.0 ** (-total_log_score / total_units)
-    return ppl
-
-
-#        for ref_text, hyp_text_ids, utt_id in zip(
-#            audio_batch["target"], trn_hyp_ids, audio_batch["id"]
-#        ):
-#            text = tokenizer.decode(hyp_text_ids, skip_special_tokens=True)
-#            text = normalize(text)
-#            raw_hypotheses.append(text)
-#            trn_hyp = text + f" ({utt_id})\n"
-#            hyp_trn.append(trn_hyp)
-#
-#            text = normalize(ref_text)
-#            raw_references.append(text)
-#            trn_ref = text + f" ({utt_id})\n"
-#            ref_trn.append(trn_ref)
-#
-#
-#    if sample_dir is not None:
-#        hyp_file_name = sample_dir / f"iter_{step}" / "hyp.trn"
-#        ref_file_name = sample_dir / f"iter_{step}" / "ref.trn"
-#
-#        hyp_file_name.parents[0].mkdir(exist_ok=True, parents=True)
-#
-#        with (
-#            open(hyp_file_name, "w", encoding="utf-8") as hyp_file,
-#            open(ref_file_name, "w", encoding="utf-8") as ref_file,
-#        ):
-#            for hyp, ref in zip(hyp_trn, ref_trn):
-#                hyp_file.write(hyp)
-#                ref_file.write(ref)
-#
-#    for hyp, ref in zip(hyp_trn[:10], ref_trn[:10]):
-#        print(hyp)
-#        print(ref)
-#
-#    cer = None
-#    if raw_references and raw_hypotheses:
-#        cer = jiwer.cer(raw_references, raw_hypotheses)
-#    else:
-#        print("something went wrong with CER calculation")
-
+    return uer, ppl

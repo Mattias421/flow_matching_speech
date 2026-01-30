@@ -20,7 +20,7 @@ data:
   num_workers: 0
   max_decode_ratio: 1
   debug: false
-  codec_name: mimi # [focalcodec, mimi]
+  codec_name: mimi  # [focalcodec, mimi]
   train_percent: 50
   supervised: True
   text_tokenizer: speecht5
@@ -30,7 +30,7 @@ training:
   snapshot: 500
   eval_freq: 5000
   perplexity_freq: 50000000
-  cer_freq: 100
+  uer_freq: 500
   seed: 42
   unsupervised_prob: 1
   partial_loss_weight: 1
@@ -38,6 +38,7 @@ training:
   pad_weight: 1.0
   codebook_prob: 0.0
   time_conditioning: true
+  t_min: 0.8
 
 eval:
   batch_size: 8

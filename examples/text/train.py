@@ -99,7 +99,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     train_loss_values = []
 
-    cer = None
+    uer = None
 
     while state.step <= num_train_steps:
         batch = next(train_loader)
@@ -129,6 +129,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             codebook_prob=cfg.training.codebook_prob,
             loss_speech_weight=cfg.optim.loss_speech_weight,
             time_conditioning=cfg.training.time_conditioning,
+            t_min=cfg.training.t_min,
         )
 
         train_loss_values.append(
@@ -208,7 +209,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             )
 
         # Generation
-        if state.step % cfg.training.cer_freq == 0:
+        if state.step % cfg.training.uer_freq == 0:
             state.eval()
 
             logger.info("Generating text...", step=state.step)
@@ -216,7 +217,7 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             model = state.model.module
             kenlm_path = cfg.data.text_data + "/lm.phones.filtered.04.bin"
 
-            cer = generate.generate_transcription(
+            uer, ppl = generate.generate_transcription(
                 model=model,
                 step=state.step,
                 sample_dir=work_dirs.samples,
@@ -238,7 +239,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             )
 
             logger.log_metric(
-                value=cer, name="PPL", stage="Evaluation", step=state.step
+                value=uer, name="UER", stage="Evaluation", step=state.step
+            )
+            logger.log_metric(
+                value=ppl, name="PPL", stage="Evaluation", step=state.step
             )
 
         dist.barrier()
@@ -250,10 +254,10 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
         state.save_checkpoint(ckpt_dir=work_dirs.checkpoint, rank=rank)
 
-        logger.info(f"Final CER: {cer}")
+        logger.info(f"Final UER: {uer}")
 
     logger.finish()
-    return cer
+    return uer
 
 
 def setup(rank: int, world_size: int, port: int) -> None:
@@ -273,8 +277,8 @@ def cleanup() -> None:
 def run_mp_training(rank: int, world_size: int, cfg: OmegaConf, port: int) -> None:
     try:
         setup(rank=rank, world_size=world_size, port=port)
-        cer = run_train(rank=rank, cfg=cfg)
+        uer = run_train(rank=rank, cfg=cfg)
         if rank == 0:
-            return cer
+            return uer
     finally:
         cleanup()
