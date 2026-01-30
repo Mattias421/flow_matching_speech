@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --array=0-960
+#SBATCH --array=2-960
 #SBATCH --time=5:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=96G
@@ -12,7 +12,7 @@
 echo "starting experiment"
 
 cd $EXP/flow_matching_speech/examples/text
-ml GCC GCCcore binutils libsndfile
+ml binutils GCCcore GCC libsndfile cuDNN bzip2
 source .venv/bin/activate
 export SUBMITIT_EXECUTOR=slurm
 
@@ -25,10 +25,12 @@ for warmup in 500 1000 1500 2000; do
             for quantizer_groups in 1 2 3; do
     if [ "$SLURM_ARRAY_TASK_ID" == "$counter" ]; then
 
+        # disabling eval because this crashed
         echo "running job $counter with $lr lr"
 
         python run_train.py -m --config-name librispeech \
         hydra.job.num=$SLURM_ARRAY_TASK_ID \
+        training.eval_freq=1000000 \
         data.text_data=$DATA/variety-text-corpus/LibriLM/text/phones \
         data.features_path=$DATA/LibriSpeech-10hr-rVAD/features/wav2vec_vox \
         hydra_dir=./outputs  \

@@ -41,8 +41,8 @@ training:
   t_min: 0.8
 
 eval:
-  batch_size: 32
-  sample_batch_size: 16
+  batch_size: 8
+  sample_batch_size: 8
   perplexity: True
   perplexity_batch_size: 128
   n_gen_iter: 8

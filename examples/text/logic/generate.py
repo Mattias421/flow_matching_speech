@@ -53,7 +53,7 @@ def generate_transcription(
     model = model.eval()
     kenlm_model = kenlm.Model(kenlm_path)
     total_log_score = 0
-    total_units = 0
+    total_units = 1e-9
 
     hyp_trn = []
     ref_trn = []
@@ -125,7 +125,7 @@ def generate_transcription(
         print(hyp)
         print(ref)
 
-    uer = None
+    uer = 10.0
     if raw_references and raw_hypotheses:
         uer = jiwer.wer(raw_references, raw_hypotheses)
     else:
