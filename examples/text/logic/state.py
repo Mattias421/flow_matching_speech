@@ -57,7 +57,7 @@ class TrainState:
             loaded_state = torch.load(ckpt_dir, map_location=device, weights_only=True)
 
             self.optimizer.load_state_dict(loaded_state["optimizer"])
-            self.model.module.load_state_dict(loaded_state["model"])
+            self.model.load_state_dict(loaded_state["model"])
             self.step = loaded_state["step"]
 
             if loaded_state["train_sampler"]:
@@ -81,7 +81,7 @@ class TrainState:
     def save_checkpoint(self, ckpt_dir: str, rank: int) -> None:
         saved_state = {
             "optimizer": self.optimizer.state_dict(),
-            "model": self.model.module.state_dict(),
+            "model": self.model.state_dict(),
             "step": self.step,
         }
 

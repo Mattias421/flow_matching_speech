@@ -8,6 +8,7 @@
 
 import itertools
 from typing import Any, Dict, Optional
+import random
 
 import numpy as np
 import torch
@@ -45,7 +46,7 @@ def cycle_loader(dataloader: DataLoader, sampler: Sampler = None) -> Tensor:
             yield data
 
 
-class StatefulDistributedSampler(torch.utils.data.distributed.DistributedSampler):
+class StatefulSampler(torch.utils.data.Sampler):
     """
     From: https://github.com/pytorch/data/blob/main/torchdata/stateful_dataloader/sampler.py#L132
     """
@@ -61,16 +62,31 @@ class StatefulDistributedSampler(torch.utils.data.distributed.DistributedSampler
         seed: int = 0,
         drop_last: bool = False,
     ) -> None:
-        super().__init__(dataset, num_replicas, rank, shuffle, seed, drop_last)
         self.yielded = 0
         self.next_yielded = None
+        self.shuffle = shuffle
+        self.dataset = dataset
+        self.seed = seed
+
+        # Initialize indices
+        self.indices = list(range(len(self.dataset)))
+        if not self.shuffle:
+            # If not shuffling, they stay 0, 1, 2...
+            pass
+        else:
+            # Initial shuffle with provided seed
+            random.seed(self.seed)
+            random.shuffle(self.indices)
 
     def __iter__(self):
         self.yielded = 0
         if self.next_yielded is not None:
             self.yielded = self.next_yielded
             self.next_yielded = None
-        it = super().__iter__()
+        elif self.shuffle:
+            random.shuffle(self.indices)
+
+        it = iter(self.indices)
         for idx in itertools.islice(it, self.yielded, None):
             self.yielded += 1
             yield idx

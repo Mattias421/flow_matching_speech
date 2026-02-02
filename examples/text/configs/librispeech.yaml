@@ -21,7 +21,7 @@ data:
   features_path: /path/to/features/dir
   num_workers: 1
   debug: false
-  codec_name: mimi # [focalcodec, mimi]
+  codec_name: mimi  # [focalcodec, mimi]
   train_percent: 100
   supervised: True
   text_tokenizer: speecht5

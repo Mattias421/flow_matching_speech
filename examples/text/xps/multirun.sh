@@ -43,7 +43,10 @@ for warmup in 500 1000 1500 2000; do
         model.quantizer_groups=$quantizer_groups \
         model.compile=false \
         training.uer_freq=50 \
-        training.snapshot=10 \
+        training.snapshot=1 \
+        training.batch_size=2 \
+        model.hidden_size=120 \
+
 
 fi
     counter=$(( counter + 1 ))

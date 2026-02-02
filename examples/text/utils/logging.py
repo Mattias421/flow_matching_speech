@@ -50,6 +50,7 @@ class TrainLogger:
         self.log_dir = log_dir
         self.cfg = cfg
 
+        print(f"rank is {rank}")
         self._init_text_logger(rank=rank)
 
         self.enable_wandb = self.cfg.logging.enable_wandb and (rank == 0)

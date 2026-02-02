@@ -123,7 +123,7 @@ def step(
 
     rand_mask = torch.rand(x_1.shape, device=x_1.device)
     x_t = x_1.clone().detach()
-    x_t[rand_mask > t[:, None]] = state.model.module.vocab_size
+    x_t[rand_mask > t[:, None]] = state.model.vocab_size
     x_t[x_1_padding] = pad_id
 
     rand_mask = torch.rand(x_1_speech.shape[:2], device=x_1.device)

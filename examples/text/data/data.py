@@ -24,7 +24,7 @@ from transformers import SpeechT5Tokenizer
 from transformers import WhisperProcessor
 
 from data.tokenizer import wt_detokenizer
-from data.utils import cycle_loader, StatefulDistributedSampler, collate_fn_unpaired
+from data.utils import cycle_loader, StatefulSampler, collate_fn_unpaired
 from data.extracted_features_dataset import ExtractedFeaturesDataset
 from data.random_input_dataset import RandomInputDataset
 import logging
@@ -32,10 +32,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class Dataset:
     dataset: DatasetDict = field(metadata={"help": "Huggingface dataset"})
-    sampler: StatefulDistributedSampler = field(
+    sampler: StatefulSampler = field(
         metadata={"help": "Stateful sampler for `dataset`"}
     )
 
@@ -73,7 +74,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         pad_idx=target_dictionary.pad(),
     )
 
-    train.sampler = StatefulDistributedSampler(dataset=train, seed=0)
+    train.sampler = StatefulSampler(dataset=train, seed=0)
     train.target_dictionary = target_dictionary
 
     test_audio = ExtractedFeaturesDataset(
@@ -91,7 +92,7 @@ def get_data_state(config: OmegaConf) -> DataState:
         add_to_input=True,
         pad_idx=target_dictionary.pad(),
     )
-    valid.sampler = StatefulDistributedSampler(dataset=valid, seed=0)
+    valid.sampler = StatefulSampler(dataset=valid, seed=0)
     valid.target_dictionary = target_dictionary
 
     return DataState(train=train, valid=valid)

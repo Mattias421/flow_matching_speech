@@ -8,7 +8,6 @@ import datetime
 import os
 
 import torch
-import torch.distributed as dist
 from data import data
 from flow_matching.loss import MixturePathGeneralizedKL
 
@@ -17,7 +16,6 @@ from logic.state import TrainState
 from model import Transformer
 from omegaconf import OmegaConf
 from torch import optim
-from torch.nn.parallel import DistributedDataParallel as DDP
 from transformers import WhisperProcessor, SpeechT5Tokenizer
 from utils import checkpointing, logging
 
@@ -56,7 +54,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
     num_parameters = sum(p.numel() for p in model.parameters())
     logger.info(f"Number of parameters in the model: {num_parameters}")
-    model = DDP(model, device_ids=[rank], static_graph=True)
 
     logger.info(model)
     optimizer = optim.AdamW(
@@ -147,7 +144,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
             agg_train_loss_values = torch.tensor(train_loss_values, device=device).mean(
                 dim=0
             )
-            dist.all_reduce(agg_train_loss_values, dist.ReduceOp.AVG)
 
             for loss_name, loss_value in zip(
                 [
@@ -203,7 +199,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 time_conditioning=cfg.training.time_conditioning,
             )
 
-            dist.all_reduce(eval_loss, dist.ReduceOp.AVG)
             logger.log_metric(
                 value=eval_loss.item(), name="Loss", stage="Evaluation", step=state.step
             )
@@ -214,7 +209,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
 
             logger.info("Generating text...", step=state.step)
 
-            model = state.model.module
             kenlm_path = cfg.data.text_data + "/lm.phones.filtered.04.bin"
 
             uer, ppl = generate.generate_transcription(
@@ -245,8 +239,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
                 value=ppl, name="PPL", stage="Evaluation", step=state.step
             )
 
-        dist.barrier()
-
         state.step = state.step + 1
 
     if (state.step == num_train_steps) and (rank == 0):
@@ -260,25 +252,6 @@ def run_train(rank: int, cfg: OmegaConf) -> None:
     return uer
 
 
-def setup(rank: int, world_size: int, port: int) -> None:
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = str(port)
-
-    # torch.cuda.set_device(rank)
-
-    timeout = datetime.timedelta(minutes=30)
-    dist.init_process_group("nccl", rank=rank, world_size=world_size, timeout=timeout)
-
-
-def cleanup() -> None:
-    dist.destroy_process_group()
-
-
-def run_mp_training(rank: int, world_size: int, cfg: OmegaConf, port: int) -> None:
-    try:
-        setup(rank=rank, world_size=world_size, port=port)
-        uer = run_train(rank=rank, cfg=cfg)
-        if rank == 0:
-            return uer
-    finally:
-        cleanup()
+def run_mp_training(rank: int, world_size: int, cfg: OmegaConf) -> None:
+    uer = run_train(rank=rank, cfg=cfg)
+    return uer
