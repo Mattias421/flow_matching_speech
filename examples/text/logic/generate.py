@@ -64,6 +64,7 @@ def generate_transcription(
 
     for audio_batch in tqdm(audioloader):
         # assert text_batch["id"] == audio_batch["id"]
+        print(audio_batch)
 
         refs = [' '.join(phn_seq) for phn_seq in audio_batch["target"]]
         raw_references.extend(refs)

@@ -264,7 +264,7 @@ def setup(rank: int, world_size: int, port: int) -> None:
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(port)
 
-    torch.cuda.set_device(rank)
+    # torch.cuda.set_device(rank)
 
     timeout = datetime.timedelta(minutes=30)
     dist.init_process_group("nccl", rank=rank, world_size=world_size, timeout=timeout)

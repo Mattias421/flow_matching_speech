@@ -80,7 +80,6 @@ def get_data_state(config: OmegaConf) -> DataState:
         path=config.data.features_path,
         split="valid",
         max_length=config.model.length,
-        aux_target_postfix='km',
         labels='phn',
         label_dict=target_dictionary,
     )

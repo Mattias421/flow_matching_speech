@@ -1,20 +1,21 @@
 #!/bin/bash
-#SBATCH --array=2-960
+#SBATCH --array=0-1
 #SBATCH --time=5:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=96G
 #SBATCH --export=NONE
 #SBATCH --output=logs/slurm/%x-%a-2.out
+
+echo "starting experiment"
 #SBATCH --partition=gpu,gpu-h100,gpu-h100-nvl
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
-
-echo "starting experiment"
 
 cd $EXP/flow_matching_speech/examples/text
 ml binutils GCCcore GCC libsndfile cuDNN bzip2
 source .venv/bin/activate
 export SUBMITIT_EXECUTOR=slurm
+export WANDB_TAGS=the_big_grid
 
 counter=0
 
@@ -39,7 +40,11 @@ for warmup in 500 1000 1500 2000; do
         optim.warmup=$warmup \
         training.t_min=$t_min \
         model.n_quantizers=$n_quantizers \
-        model.quantizer_groups=$quantizer_groups
+        model.quantizer_groups=$quantizer_groups \
+        model.compile=false \
+        training.uer_freq=50 \
+        training.snapshot=10 \
+
 fi
     counter=$(( counter + 1 ))
 
